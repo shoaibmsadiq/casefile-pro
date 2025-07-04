@@ -1,6 +1,6 @@
 // Welcome to your Case File Management App!
-// FEATURE UPDATE: This version introduces an advanced dashboard with charts for case analysis.
-// It uses the 'recharts' library to display a pie chart for case types and a bar chart for monthly new cases.
+// FEATURE UPDATE: This version adds more detailed fields to each case file,
+// including Case Status, Date Filed, and a Decision Summary. The dashboard is also updated to reflect these new statuses.
 
 // -----------------------------------------------------------------------------
 // 1. DEPENDENCIES
@@ -40,9 +40,8 @@ import {
     getToken, 
     onMessage 
 } from "firebase/messaging";
-// NEW: Import recharts for dashboard visualizations
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { AreaChart, FileText, BarChart2, Bell, BellOff, Paperclip, UploadCloud, FileWarning, FilePlus, Search, Edit, Trash2, X, Calendar, Briefcase, User, Users, MapPin, Tag, ChevronDown, LogOut, Loader2 } from 'lucide-react';
+import { ShieldCheck, ShieldX, Archive, Activity, AreaChart, FileText, BarChart2, Bell, BellOff, Paperclip, UploadCloud, FileWarning, FilePlus, Search, Edit, Trash2, X, Calendar, Briefcase, User, Users, MapPin, Tag, ChevronDown, LogOut, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ToastContainer, toast } from 'react-toastify';
 
@@ -84,11 +83,7 @@ function App() {
         document.head.appendChild(link);
 
         const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                setUser(user);
-            } else {
-                setUser(null);
-            }
+            setUser(user ? user : null);
             setLoading(false);
         });
 
@@ -187,7 +182,6 @@ function CaseManagementSystem({ user }) {
                 return { 
                     id: doc.id, 
                     ...data,
-                    // Convert Firestore Timestamp to JS Date for charting
                     createdAt: data.createdAt?.toDate() 
                 };
             });
@@ -202,7 +196,6 @@ function CaseManagementSystem({ user }) {
         try {
             const permission = await Notification.requestPermission();
             setNotificationPermission(permission);
-
             if (permission === 'granted') {
                 toast.success("Notifications enabled!");
                 const currentToken = await getToken(messaging, { vapidKey: 'YOUR_VAPID_KEY_FROM_FIREBASE_SETTINGS' });
@@ -246,7 +239,6 @@ function CaseManagementSystem({ user }) {
                 }
                 toast.success('Case file updated!');
             } else {
-                // NEW: Add a createdAt timestamp for new cases for dashboard reporting
                 const newCaseData = { ...caseData, attachments: [], createdAt: serverTimestamp() };
                 const newCaseRef = await addDoc(casesCollection, newCaseData);
                 if (fileToUpload) {
@@ -294,9 +286,7 @@ function CaseManagementSystem({ user }) {
             </header>
 
             <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-                {/* NEW: Advanced Dashboard Component */}
                 <Dashboard cases={cases} />
-
                 <div className="bg-white p-4 rounded-xl shadow-lg mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="relative w-full sm:w-auto sm:flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" /><input type="text" placeholder="Search by client, title, case no..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
                     <div className="flex items-center gap-4 w-full sm:w-auto"><div className="relative w-full sm:w-48"><select value={activeFilter} onChange={(e) => setActiveFilter(e.target.value)} className="w-full appearance-none bg-white px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">{allTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select><ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" /></div><button onClick={handleAddCase} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow"><FilePlus className="w-5 h-5" /><span className="hidden sm:inline">Add Case</span></button></div>
@@ -308,12 +298,26 @@ function CaseManagementSystem({ user }) {
                         {filteredCases.length > 0 ? filteredCases.map(c => (
                             <motion.div key={c.id} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white rounded-xl shadow-lg p-6 flex flex-col">
                                 <div className="flex-grow">
-                                    <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg text-slate-800 pr-2">{c.caseTitle}</h3><div className="flex-shrink-0 flex items-center gap-2"><button onClick={() => handleEditCase(c)} className="p-1 text-slate-500 hover:text-blue-600"><Edit className="w-4 h-4" /></button><button onClick={() => handleInitiateDelete(c.id)} className="p-1 text-slate-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></div></div>
+                                    <div className="flex justify-between items-start mb-2">
+                                        <h3 className="font-bold text-lg text-slate-800 pr-2">{c.caseTitle}</h3>
+                                        <CaseStatusBadge status={c.caseStatus} />
+                                    </div>
                                     <p className="text-sm text-slate-500 mb-4">Case #: {c.caseNumber}</p>
-                                    <div className="space-y-3 text-sm text-slate-600 mb-4"><InfoItem icon={User} label="Client" value={c.clientName} /><InfoItem icon={Users} label="Opposing Party" value={c.opposingParty} /><InfoItem icon={Briefcase} label="Court" value={c.courtName} /><InfoItem icon={MapPin} label="File Location" value={c.fileLocation} /></div>
+                                    <div className="space-y-3 text-sm text-slate-600 mb-4">
+                                        <InfoItem icon={User} label="Client" value={c.clientName} />
+                                        <InfoItem icon={Calendar} label="Date Filed" value={c.caseFiledOn ? new Date(c.caseFiledOn).toLocaleDateString() : 'N/A'} />
+                                        <InfoItem icon={Users} label="Opposing Party" value={c.opposingParty} />
+                                        <InfoItem icon={Briefcase} label="Court" value={c.courtName} />
+                                        <InfoItem icon={MapPin} label="File Location" value={c.fileLocation} />
+                                    </div>
                                     <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">TAGS</h4><div className="flex flex-wrap gap-2">{c.tags?.map(tag => <span key={tag} className="text-xs font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded-full">{tag}</span>)}</div></div>
                                     <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">NOTES</h4><p className="text-sm text-slate-700 bg-slate-50 p-3 rounded-md whitespace-pre-wrap">{c.notes}</p></div>
+                                    {c.decisionSummary && <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">DECISION SUMMARY</h4><p className="text-sm text-slate-700 bg-amber-50 p-3 rounded-md whitespace-pre-wrap">{c.decisionSummary}</p></div>}
                                     {c.attachments && c.attachments.length > 0 && <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">ATTACHMENTS</h4><ul className="space-y-2">{c.attachments.map((att, i) => <li key={i} className="flex items-center justify-between bg-slate-50 p-2 rounded-md"><a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline truncate"><Paperclip className="w-4 h-4" /><span className="truncate">{att.name}</span></a><button onClick={() => handleDeleteAttachment(c.id, att)} className="p-1 text-slate-400 hover:text-red-600 flex-shrink-0"><X className="w-3 h-3" /></button></li>)}</ul></div>}
+                                </div>
+                                <div className="flex justify-end space-x-2 mt-4">
+                                    <button onClick={() => handleEditCase(c)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-full"><Edit className="w-4 h-4" /></button>
+                                    <button onClick={() => handleInitiateDelete(c.id)} className="p-2 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-full"><Trash2 className="w-4 h-4" /></button>
                                 </div>
                                 <div className="mt-auto pt-4 border-t border-slate-200"><h4 className="font-semibold text-xs text-slate-500 mb-2">HEARING DATES</h4><ul className="space-y-1 text-sm">{(c.hearingDates || []).map((date, i) => <li key={i} className="flex items-center gap-2 text-slate-700"><Calendar className="w-4 h-4 text-slate-400" />{new Date(date).toLocaleDateString()}</li>)}</ul></div>
                             </motion.div>
@@ -329,126 +333,56 @@ function CaseManagementSystem({ user }) {
     );
 }
 
-// --- NEW: Dashboard Component ---
 const Dashboard = ({ cases }) => {
-    // Data for Pie Chart (Case Types)
-    const caseTypeData = useMemo(() => {
-        const counts = cases.reduce((acc, caseItem) => {
-            (caseItem.tags || ['Uncategorized']).forEach(tag => {
-                acc[tag] = (acc[tag] || 0) + 1;
-            });
-            return acc;
-        }, {});
-        return Object.entries(counts).map(([name, value]) => ({ name, value }));
-    }, [cases]);
-
-    // Data for Bar Chart (Monthly New Cases)
-    const monthlyData = useMemo(() => {
-        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const counts = {};
-        
-        // Initialize last 6 months
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const key = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-            counts[key] = 0;
-        }
-
-        cases.forEach(caseItem => {
-            if (caseItem.createdAt && caseItem.createdAt instanceof Date) {
-                const key = `${monthNames[caseItem.createdAt.getMonth()]} ${caseItem.createdAt.getFullYear()}`;
-                if (key in counts) {
-                    counts[key]++;
-                }
-            }
-        });
-
-        return Object.entries(counts).map(([name, cases]) => ({ name, cases }));
-    }, [cases]);
-
+    const caseTypeData = useMemo(() => { const counts = cases.reduce((acc, caseItem) => { (caseItem.tags || ['Uncategorized']).forEach(tag => { acc[tag] = (acc[tag] || 0) + 1; }); return acc; }, {}); return Object.entries(counts).map(([name, value]) => ({ name, value })); }, [cases]);
+    const monthlyData = useMemo(() => { const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]; const counts = {}; for (let i = 5; i >= 0; i--) { const d = new Date(); d.setMonth(d.getMonth() - i); const key = `${monthNames[d.getMonth()]} ${d.getFullYear()}`; counts[key] = 0; } cases.forEach(caseItem => { if (caseItem.createdAt && caseItem.createdAt instanceof Date) { const key = `${monthNames[caseItem.createdAt.getMonth()]} ${caseItem.createdAt.getFullYear()}`; if (key in counts) { counts[key]++; } } }); return Object.entries(counts).map(([name, cases]) => ({ name, cases })); }, [cases]);
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#ff4d4d'];
-
+    
+    // UPDATED: Dashboard stats now use the caseStatus field for more accuracy
     const totalCases = cases.length;
-    const activeCases = cases.filter(c => !(c.tags?.includes('Decided') || c.tags?.includes('Closed'))).length;
-    const decidedCases = totalCases - activeCases;
+    const activeCases = cases.filter(c => ['Active', 'Pending', 'Appeal'].includes(c.caseStatus)).length;
+    const decidedCases = cases.filter(c => ['Decided', 'Closed'].includes(c.caseStatus)).length;
 
     return (
         <div className="mb-8">
             <h2 className="text-2xl font-bold text-slate-700 mb-4">Dashboard</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {/* Stat Cards */}
                 <StatCard icon={Briefcase} title="Total Cases" value={totalCases} color="blue" />
-                <StatCard icon={AreaChart} title="Active Cases" value={activeCases} color="green" />
-                <StatCard icon={FileText} title="Decided Cases" value={decidedCases} color="orange" />
+                <StatCard icon={Activity} title="Active Cases" value={activeCases} color="green" />
+                <StatCard icon={Archive} title="Decided/Closed" value={decidedCases} color="orange" />
                 <StatCard icon={Calendar} title="Upcoming Hearings" value={cases.flatMap(c => c.hearingDates || []).filter(d => new Date(d) >= new Date()).length} color="purple" />
-
-                {/* Pie Chart */}
-                <div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-lg">
-                    <h3 className="font-bold text-slate-800 text-lg mb-4">Case Types Distribution</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <PieChart>
-                            <Pie data={caseTypeData} cx="50%" cy="50%" labelLine={false} outerRadius={100} fill="#8884d8" dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                                {caseTypeData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                ))}
-                            </Pie>
-                            <Tooltip />
-                            <Legend />
-                        </PieChart>
-                    </ResponsiveContainer>
-                </div>
-
-                {/* Bar Chart */}
-                <div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-lg">
-                    <h3 className="font-bold text-slate-800 text-lg mb-4">New Cases (Last 6 Months)</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={monthlyData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="name" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Bar dataKey="cases" fill="#8884d8" name="New Cases" />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
+                <div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-lg"><h3 className="font-bold text-slate-800 text-lg mb-4">Case Types Distribution</h3><ResponsiveContainer width="100%" height={300}><PieChart><Pie data={caseTypeData} cx="50%" cy="50%" labelLine={false} outerRadius={100} fill="#8884d8" dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>{caseTypeData.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip /><Legend /></PieChart></ResponsiveContainer></div>
+                <div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-lg"><h3 className="font-bold text-slate-800 text-lg mb-4">New Cases (Last 6 Months)</h3><ResponsiveContainer width="100%" height={300}><BarChart data={monthlyData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis /><Tooltip /><Legend /><Bar dataKey="cases" fill="#8884d8" name="New Cases" /></BarChart></ResponsiveContainer></div>
             </div>
         </div>
     );
 };
 
-const StatCard = ({ icon: Icon, title, value, color }) => {
-    const colors = {
-        blue: 'bg-blue-100 text-blue-600',
-        green: 'bg-green-100 text-green-600',
-        orange: 'bg-orange-100 text-orange-600',
-        purple: 'bg-purple-100 text-purple-600',
-    };
-    return (
-        <div className="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
-            <div className={`p-3 rounded-full ${colors[color]}`}>
-                <Icon className="w-6 h-6" />
-            </div>
-            <div>
-                <p className="text-sm text-slate-500">{title}</p>
-                <p className="text-2xl font-bold text-slate-800">{value}</p>
-            </div>
-        </div>
-    );
-};
-
-
-// All other components (InfoItem, CaseFormModal, InputField, ConfirmDeleteModal) remain the same.
+const StatCard = ({ icon: Icon, title, value, color }) => { const colors = { blue: 'bg-blue-100 text-blue-600', green: 'bg-green-100 text-green-600', orange: 'bg-orange-100 text-orange-600', purple: 'bg-purple-100 text-purple-600', }; return (<div className="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4"><div className={`p-3 rounded-full ${colors[color]}`}><Icon className="w-6 h-6" /></div><div><p className="text-sm text-slate-500">{title}</p><p className="text-2xl font-bold text-slate-800">{value}</p></div></div>); };
 const InfoItem = ({ icon: Icon, label, value }) => (<div className="flex items-start"><Icon className="w-4 h-4 text-slate-400 mt-0.5 mr-3 flex-shrink-0" /><div><p className="text-xs text-slate-500">{label}</p><p className="font-medium text-slate-800">{value}</p></div></div>);
+
+// NEW: Badge component to show case status
+const CaseStatusBadge = ({ status }) => {
+    const statusStyles = {
+        'Active': 'bg-green-100 text-green-800',
+        'Pending': 'bg-yellow-100 text-yellow-800',
+        'Appeal': 'bg-blue-100 text-blue-800',
+        'Decided': 'bg-purple-100 text-purple-800',
+        'Closed': 'bg-slate-100 text-slate-800',
+        'default': 'bg-slate-100 text-slate-800'
+    };
+    return (<span className={`px-2 py-1 text-xs font-medium rounded-full ${statusStyles[status] || statusStyles['default']}`}>{status}</span>);
+};
+
 function CaseFormModal({ isOpen, onClose, onSave, caseData }) {
-    const [formData, setFormData] = useState({ clientName: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [] });
+    const initialFormState = { clientName: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '' };
+    const [formData, setFormData] = useState(initialFormState);
     const [newDate, setNewDate] = useState('');
     const [newTag, setNewTag] = useState('');
     const [fileToUpload, setFileToUpload] = useState(null);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [loading, setLoading] = useState(false);
-    useEffect(() => { if (caseData) setFormData({ ...caseData, hearingDates: caseData.hearingDates || [], tags: caseData.tags || [], attachments: caseData.attachments || [] }); else setFormData({ clientName: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [] }); setFileToUpload(null); setUploadProgress(0); }, [caseData, isOpen]);
+    useEffect(() => { if (caseData) setFormData({ ...initialFormState, ...caseData, hearingDates: caseData.hearingDates || [], tags: caseData.tags || [], attachments: caseData.attachments || [] }); else setFormData(initialFormState); setFileToUpload(null); setUploadProgress(0); }, [caseData, isOpen]);
     const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
     const handleFileChange = (e) => { if (e.target.files[0]) setFileToUpload(e.target.files[0]); };
     const handleAddDate = () => { if (newDate && !formData.hearingDates.includes(newDate)) { setFormData(prev => ({ ...prev, hearingDates: [...prev.hearingDates, newDate].sort() })); setNewDate(''); } };
@@ -456,12 +390,34 @@ function CaseFormModal({ isOpen, onClose, onSave, caseData }) {
     const handleAddTag = () => { if (newTag && !formData.tags.includes(newTag.trim())) { setFormData(prev => ({ ...prev, tags: [...prev.tags, newTag.trim()] })); setNewTag(''); } };
     const handleRemoveTag = (tagToRemove) => setFormData(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tagToRemove) }));
     const handleSubmit = async (e) => { e.preventDefault(); setLoading(true); await onSave(formData, fileToUpload, setUploadProgress); setLoading(false); };
-    return (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-50 z-30 flex justify-center items-center p-4" onClick={onClose}><motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: -20 }} className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}><div className="p-6 border-b border-slate-200 flex justify-between items-center"><h2 className="text-xl font-bold text-slate-800">{caseData ? 'Edit Case File' : 'Add New Case File'}</h2><button onClick={onClose} className="p-1 rounded-full text-slate-500 hover:bg-slate-200"><X className="w-5 h-5" /></button></div><form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><InputField name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} required /><InputField name="caseTitle" label="Case Title" value={formData.caseTitle} onChange={handleChange} required /><InputField name="courtName" label="Court Name / Type" value={formData.courtName} onChange={handleChange} required /><InputField name="caseNumber" label="Case Number" value={formData.caseNumber} onChange={handleChange} required /><InputField name="opposingParty" label="Opposing Party" value={formData.opposingParty} onChange={handleChange} /><InputField name="fileLocation" label="Physical File Location" value={formData.fileLocation} onChange={handleChange} /></div><div><label className="block text-sm font-medium text-slate-600 mb-1">Hearing Dates</label><div className="flex gap-2 mb-2"><input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="flex-grow w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /><button type="button" onClick={handleAddDate} className="bg-slate-200 text-slate-800 px-4 rounded-lg hover:bg-slate-300">Add</button></div><div className="flex flex-wrap gap-2">{formData.hearingDates.map(date => <span key={date} className="flex items-center gap-2 bg-slate-100 text-slate-700 text-sm px-2 py-1 rounded-full">{new Date(date).toLocaleDateString()}<button type="button" onClick={() => handleRemoveDate(date)}><X className="w-3 h-3" /></button></span>)}</div></div><div><label className="block text-sm font-medium text-slate-600 mb-1">Tags</label><div className="flex gap-2 mb-2"><input type="text" placeholder="Add a tag..." value={newTag} onChange={e => setNewTag(e.target.value)} className="flex-grow w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /><button type="button" onClick={handleAddTag} className="bg-slate-200 text-slate-800 px-4 rounded-lg hover:bg-slate-300">Add</button></div><div className="flex flex-wrap gap-2">{formData.tags.map(tag => <span key={tag} className="flex items-center gap-2 bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded-full">{tag}<button type="button" onClick={() => handleRemoveTag(tag)}><X className="w-3 h-3" /></button></span>)}</div></div><div><label htmlFor="notes" className="block text-sm font-medium text-slate-600 mb-1">Notes / Updates</label><textarea id="notes" name="notes" rows="4" value={formData.notes} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea></div><div><label className="block text-sm font-medium text-slate-600 mb-1">Attach File</label><div className="mt-2 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-md"><div className="space-y-1 text-center"><UploadCloud className="mx-auto h-12 w-12 text-slate-400" /><div className="flex text-sm text-slate-600"><label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"><span>Upload a file</span><input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} /></label><p className="pl-1">or drag and drop</p></div>{fileToUpload ? <p className="text-sm text-slate-500">{fileToUpload.name}</p> : <p className="text-xs text-slate-500">PDF, PNG, JPG, DOCX up to 10MB</p>}</div></div>{uploadProgress > 0 && <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2"><div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${uploadProgress}%` }}></div></div>}</div><div className="pt-4 border-t border-slate-200 flex justify-end gap-3"><button type="button" onClick={onClose} className="bg-white text-slate-700 px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50">Cancel</button><button type="submit" disabled={loading} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center w-28">{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Case'}</button></div></form></motion.div></motion.div>);
+    return (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-50 z-30 flex justify-center items-center p-4" onClick={onClose}><motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: -20 }} className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}><div className="p-6 border-b border-slate-200 flex justify-between items-center"><h2 className="text-xl font-bold text-slate-800">{caseData ? 'Edit Case File' : 'Add New Case File'}</h2><button onClick={onClose} className="p-1 rounded-full text-slate-500 hover:bg-slate-200"><X className="w-5 h-5" /></button></div><form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <InputField name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} required />
+            <InputField name="caseTitle" label="Case Title" value={formData.caseTitle} onChange={handleChange} required />
+            <InputField name="courtName" label="Court Name / Type" value={formData.courtName} onChange={handleChange} required />
+            <InputField name="caseNumber" label="Case Number" value={formData.caseNumber} onChange={handleChange} required />
+            <InputField name="opposingParty" label="Opposing Party" value={formData.opposingParty} onChange={handleChange} />
+            <InputField name="fileLocation" label="Physical File Location" value={formData.fileLocation} onChange={handleChange} />
+            {/* NEW FIELDS */}
+            <InputField name="caseFiledOn" label="Date Case Filed" type="date" value={formData.caseFiledOn} onChange={handleChange} />
+            <div>
+                <label htmlFor="caseStatus" className="block text-sm font-medium text-slate-600 mb-1">Case Status</label>
+                <select id="caseStatus" name="caseStatus" value={formData.caseStatus} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option>Active</option><option>Pending</option><option>Appeal</option><option>Decided</option><option>Closed</option>
+                </select>
+            </div>
+        </div>
+        <div><label className="block text-sm font-medium text-slate-600 mb-1">Hearing Dates</label><div className="flex gap-2 mb-2"><input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="flex-grow w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /><button type="button" onClick={handleAddDate} className="bg-slate-200 text-slate-800 px-4 rounded-lg hover:bg-slate-300">Add</button></div><div className="flex flex-wrap gap-2">{formData.hearingDates.map(date => <span key={date} className="flex items-center gap-2 bg-slate-100 text-slate-700 text-sm px-2 py-1 rounded-full">{new Date(date).toLocaleDateString()}<button type="button" onClick={() => handleRemoveDate(date)}><X className="w-3 h-3" /></button></span>)}</div></div>
+        <div><label className="block text-sm font-medium text-slate-600 mb-1">Tags (e.g., Civil, Criminal)</label><div className="flex gap-2 mb-2"><input type="text" placeholder="Add a tag..." value={newTag} onChange={e => setNewTag(e.target.value)} className="flex-grow w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /><button type="button" onClick={handleAddTag} className="bg-slate-200 text-slate-800 px-4 rounded-lg hover:bg-slate-300">Add</button></div><div className="flex flex-wrap gap-2">{formData.tags.map(tag => <span key={tag} className="flex items-center gap-2 bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded-full">{tag}<button type="button" onClick={() => handleRemoveTag(tag)}><X className="w-3 h-3" /></button></span>)}</div></div>
+        <div><label htmlFor="notes" className="block text-sm font-medium text-slate-600 mb-1">Notes / Updates</label><textarea id="notes" name="notes" rows="4" value={formData.notes} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>
+        {/* NEW FIELD */}
+        <div><label htmlFor="decisionSummary" className="block text-sm font-medium text-slate-600 mb-1">Decision Summary / Judgment</label><textarea id="decisionSummary" name="decisionSummary" rows="4" value={formData.decisionSummary} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>
+        <div><label className="block text-sm font-medium text-slate-600 mb-1">Attach File</label><div className="mt-2 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-md"><div className="space-y-1 text-center"><UploadCloud className="mx-auto h-12 w-12 text-slate-400" /><div className="flex text-sm text-slate-600"><label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"><span>Upload a file</span><input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} /></label><p className="pl-1">or drag and drop</p></div>{fileToUpload ? <p className="text-sm text-slate-500">{fileToUpload.name}</p> : <p className="text-xs text-slate-500">PDF, PNG, JPG, DOCX up to 10MB</p>}</div></div>{uploadProgress > 0 && <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2"><div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${uploadProgress}%` }}></div></div>}</div>
+        <div className="pt-4 border-t border-slate-200 flex justify-end gap-3"><button type="button" onClick={onClose} className="bg-white text-slate-700 px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50">Cancel</button><button type="submit" disabled={loading} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center w-28">{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Case'}</button></div>
+    </form></motion.div></motion.div>);
 }
+
 const InputField = ({ name, label, value, onChange, type = 'text', required = false, id }) => (<div><label htmlFor={id || name} className="block text-sm font-medium text-slate-600 mb-1">{label}</label><input type={type} id={id || name} name={name} value={value} onChange={onChange} required={required} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>);
-function ConfirmDeleteModal({ isOpen, onClose, onConfirm }) {
-    if (!isOpen) return null;
-    return (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-60 z-40 flex justify-center items-center p-4" onClick={onClose}><motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: -20 }} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}><div className="mx-auto bg-red-100 rounded-full h-12 w-12 flex items-center justify-center mb-4"><FileWarning className="h-6 w-6 text-red-600" /></div><h3 className="text-lg font-bold text-slate-800 mb-2">Are you sure?</h3><p className="text-slate-600 mb-6 text-sm">Do you really want to delete this case file? This action cannot be undone.</p><div className="flex justify-center gap-4"><button onClick={onClose} className="bg-slate-200 text-slate-800 px-6 py-2 rounded-lg hover:bg-slate-300 font-semibold">Cancel</button><button onClick={onConfirm} className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 font-semibold">Delete</button></div></motion.div></motion.div>);
-}
+function ConfirmDeleteModal({ isOpen, onClose, onConfirm }) { if (!isOpen) return null; return (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-60 z-40 flex justify-center items-center p-4" onClick={onClose}><motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: -20 }} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}><div className="mx-auto bg-red-100 rounded-full h-12 w-12 flex items-center justify-center mb-4"><FileWarning className="h-6 w-6 text-red-600" /></div><h3 className="text-lg font-bold text-slate-800 mb-2">Are you sure?</h3><p className="text-slate-600 mb-6 text-sm">Do you really want to delete this case file? This action cannot be undone.</p><div className="flex justify-center gap-4"><button onClick={onClose} className="bg-slate-200 text-slate-800 px-6 py-2 rounded-lg hover:bg-slate-300 font-semibold">Cancel</button><button onClick={onConfirm} className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 font-semibold">Delete</button></div></motion.div></motion.div>); }
 
 export default App;
