@@ -4,14 +4,14 @@ importScripts("https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-com
 
 // IMPORTANT: Replace with your app's Firebase project configuration
 const firebaseConfig = {
-    apiKey: "AIzaSyC93J87oWxUx6RMsOfs0Xs6CNwbwfMmmBQ",
-    authDomain: "casefile-pro.firebaseapp.com",
-    projectId: "casefile-pro",
-    storageBucket: "casefile-pro.firebasestorage.app",
-    messagingSenderId: "387776954987",
-    appId: "1:387776954987:web:c1bc983a56efdc3539a72e",
-    measurementId: "G-TXG9HN3S89"
-  };
+  apiKey: "AIzaSyC93J87oWxUx6RMsOfs0Xs6CNwbwfMmmBQ",
+  authDomain: "casefile-pro.firebaseapp.com",
+  projectId: "casefile-pro",
+  storageBucket: "casefile-pro.firebasestorage.app",
+  messagingSenderId: "387776954987",
+  appId: "1:387776954987:web:c1bc983a56efdc3539a72e",
+  measurementId: "G-TXG9HN3S89"
+};
 
 // Initialize the Firebase app in the service worker
 // FIX: Use 'firebase.initializeApp()' which is the correct way for compat scripts
