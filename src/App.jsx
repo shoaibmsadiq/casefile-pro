@@ -1,5 +1,6 @@
 // Welcome to your Case File Management App!
-// FIX: This version resolves the "app has already been declared" error by ensuring Firebase is initialized only once.
+// SECURITY UPDATE: This version removes anonymous login to ensure only authenticated users can access the app.
+// Now, all visitors will be directed to the login/signup page first.
 
 // -----------------------------------------------------------------------------
 // 1. DEPENDENCIES
@@ -12,8 +13,7 @@ import {
     createUserWithEmailAndPassword, 
     signInWithEmailAndPassword, 
     signOut,
-    signInWithCustomToken,
-    signInAnonymously
+    // REMOVED: signInAnonymously and signInWithCustomToken are no longer needed for this secure setup.
 } from 'firebase/auth';
 import { 
     getFirestore, 
@@ -45,30 +45,21 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ToastContainer, toast } from 'react-toastify';
 
 // -----------------------------------------------------------------------------
-// 2. FIREBASE CONFIGURATION AND INITIALIZATION (SINGLE POINT)
+// 2. FIREBASE CONFIGURATION AND INITIALIZATION
 // -----------------------------------------------------------------------------
-
-// Placeholder config for local development
 const firebaseConfig = {
-    apiKey: "AIzaSyC93J87oWxUx6RMsOfs0Xs6CNwbwfMmmBQ",
-    authDomain: "casefile-pro.firebaseapp.com",
-    projectId: "casefile-pro",
-    storageBucket: "casefile-pro.firebasestorage.app",
-    messagingSenderId: "387776954987",
-    appId: "1:387776954987:web:c1bc983a56efdc3539a72e",
-    measurementId: "G-TXG9HN3S89"
-  };
-  
-  // Initialize Firebase
-  //const app = initializeApp(firebaseConfig);
-  //const analytics = getAnalytics(app);
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
 
-// Use environment variables if available, otherwise use placeholder
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const fbConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : firebaseConfig;
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+// REMOVED: initialAuthToken is no longer needed.
 
-// CORRECTED: Initialize Firebase services only ONCE from a single config object.
 const app = initializeApp(fbConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -82,7 +73,7 @@ const messaging = getMessaging(app);
 // --- Main App Component ---
 function App() {
     const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true); // Start with loading true
 
     useEffect(() => {
         const link = document.createElement('link');
@@ -90,21 +81,18 @@ function App() {
         link.href = 'https://cdn.jsdelivr.net/npm/react-toastify@9.1.3/dist/ReactToastify.min.css';
         document.head.appendChild(link);
 
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        // --- MAJOR SECURITY FIX ---
+        // This listener now only sets the user if they are logged in with Email/Password.
+        // It no longer signs in users anonymously.
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
             if (user) {
+                // A user is properly logged in.
                 setUser(user);
             } else {
-                 if (initialAuthToken) {
-                    try {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } catch (error) {
-                        console.error("Error signing in with custom token:", error);
-                        await signInAnonymously(auth);
-                    }
-                } else {
-                    await signInAnonymously(auth);
-                }
+                // No user is logged in.
+                setUser(null);
             }
+            // Stop loading only after checking the auth state.
             setLoading(false);
         });
 
@@ -119,10 +107,12 @@ function App() {
         };
     }, []);
 
+    // Show a loading screen while Firebase checks the user's login status.
     if (loading) {
-        return <LoadingScreen message="Authenticating..." />;
+        return <LoadingScreen message="Checking authentication..." />;
     }
 
+    // If loading is finished, show the app or the login screen.
     return (
         <div className="bg-slate-100 min-h-screen font-sans">
             {user ? <CaseManagementSystem user={user} /> : <AuthScreen />}
@@ -130,6 +120,7 @@ function App() {
         </div>
     );
 }
+
 
 // --- Loading Screen Component ---
 const LoadingScreen = ({ message = "Loading..." }) => (
@@ -150,24 +141,37 @@ function AuthScreen() {
     const handleAuth = async (e) => {
         e.preventDefault(); setLoading(true); setError('');
         try {
-            if (isLogin) await signInWithEmailAndPassword(auth, email, password);
-            else await createUserWithEmailAndPassword(auth, email, password);
+            if (isLogin) {
+                await signInWithEmailAndPassword(auth, email, password);
+                toast.success("Logged in successfully!");
+            } else {
+                await createUserWithEmailAndPassword(auth, email, password);
+                toast.success("Account created successfully! You are now logged in.");
+            }
         } catch (err) { setError(err.message.replace('Firebase: ', '')); }
         setLoading(false);
     };
 
     return (
-        <div className="flex justify-center items-center min-h-screen p-4">
-            <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
-                <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">CaseFile Pro</h2>
-                <p className="text-center text-slate-500 mb-6">{isLogin ? 'Welcome back! Please login.' : 'Create your account.'}</p>
+        <div className="flex justify-center items-center min-h-screen p-4 bg-slate-100">
+            <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl">
+                <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">Malik Awan Law Associates</h2>
+                <p className="text-center text-slate-500 mb-8">Case File Management Portal</p>
+                
                 <form onSubmit={handleAuth}>
-                    <div className="mb-4"><InputField type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} label="Email" required /></div>
+                    <div className="mb-4"><InputField type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} label="Email Address" required /></div>
                     <div className="mb-6"><InputField type="password" id="password" value={password} onChange={(e) => setPassword(e.target.value)} label="Password" required /></div>
-                    {error && <p className="text-red-500 text-sm text-center mb-4">{error}</p>}
-                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors flex justify-center items-center">{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (isLogin ? 'Login' : 'Sign Up')}</button>
+                    {error && <p className="text-red-500 text-sm text-center mb-4 bg-red-50 p-3 rounded-lg">{error}</p>}
+                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors flex justify-center items-center text-base">
+                        {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : (isLogin ? 'Login' : 'Sign Up & Login')}
+                    </button>
                 </form>
-                <p className="text-center text-sm text-slate-500 mt-6">{isLogin ? "Don't have an account?" : "Already have an account?"}<button onClick={() => setIsLogin(!isLogin)} className="text-blue-600 hover:underline ml-1">{isLogin ? 'Sign Up' : 'Login'}</button></p>
+                <p className="text-center text-sm text-slate-500 mt-6">
+                    {isLogin ? "Team mein naye hain?" : "Pehle se account hai?"}
+                    <button onClick={() => {setIsLogin(!isLogin); setError('');}} className="text-blue-600 hover:underline font-semibold ml-1">
+                        {isLogin ? 'Naya Account Banayein' : 'Login Karein'}
+                    </button>
+                </p>
             </div>
         </div>
     );
@@ -214,16 +218,15 @@ function CaseManagementSystem({ user }) {
 
             if (permission === 'granted') {
                 toast.success("Notifications enabled!");
-                // IMPORTANT: Replace 'YOUR_VAPID_KEY_...' with the key from your Firebase project settings
-                const currentToken = await getToken(messaging, { vapidKey: 'BNm1uk8bi56P_CCNrNBP08O0_ybfiSNgaHWwuRtn45MlfigjWcNh6Ou58AlP3JUwlVIa3wwbwHhnyJx5jVLlXsw' }); 
+                const currentToken = await getToken(messaging, { vapidKey: 'YOUR_VAPID_KEY_FROM_FIREBASE_SETTINGS' });
                 if (currentToken) {
                     console.log('FCM Token:', currentToken);
                     const tokenDocRef = doc(db, `artifacts/${appId}/users/${userId}/fcmTokens`, currentToken);
                     await setDoc(tokenDocRef, { token: currentToken, createdAt: new Date() });
                     console.log('Token saved to Firestore.');
                 } else {
-                    console.log('No registration token available. Request permission to generate one.');
-                    toast.warn("Could not get notification token. Please try again.");
+                    console.log('No registration token available.');
+                    toast.warn("Could not get notification token.");
                 }
             } else {
                 toast.warn("Notifications permission denied.");
@@ -250,7 +253,7 @@ function CaseManagementSystem({ user }) {
             }
             const caseDocRef = doc(db, `artifacts/${appId}/users/${userId}/cases`, deletingCaseId);
             await deleteDoc(caseDocRef);
-            toast.success('Case file and all attachments deleted successfully!');
+            toast.success('Case file and all attachments deleted!');
         } catch (error) { console.error("Error deleting case: ", error); toast.error('Failed to delete case file.'); }
         setDeletingCaseId(null);
     };
@@ -266,7 +269,7 @@ function CaseManagementSystem({ user }) {
                     const downloadURL = await uploadFile(fileToUpload, storagePath, setUploadProgress);
                     await updateDoc(caseDocRef, { attachments: arrayUnion({ name: fileToUpload.name, url: downloadURL, storagePath }) });
                 }
-                toast.success('Case file updated successfully!');
+                toast.success('Case file updated!');
             } else {
                 const newCaseRef = await addDoc(casesCollection, { ...caseData, attachments: [] });
                 if (fileToUpload) {
@@ -274,7 +277,7 @@ function CaseManagementSystem({ user }) {
                     const downloadURL = await uploadFile(fileToUpload, storagePath, setUploadProgress);
                     await updateDoc(newCaseRef, { attachments: arrayUnion({ name: fileToUpload.name, url: downloadURL, storagePath }) });
                 }
-                toast.success('Case file added successfully!');
+                toast.success('Case file added!');
             }
             setIsModalOpen(false); setEditingCase(null);
         } catch (error) { console.error("Error saving document: ", error); toast.error('Failed to save case file.'); }
@@ -299,20 +302,20 @@ function CaseManagementSystem({ user }) {
             await deleteObject(fileRef);
             const caseDocRef = doc(db, `artifacts/${appId}/users/${userId}/cases`, caseId);
             await updateDoc(caseDocRef, { attachments: arrayRemove(attachment) });
-            toast.success("Attachment deleted successfully.");
+            toast.success("Attachment deleted.");
         } catch (error) { console.error("Error deleting attachment:", error); toast.error("Failed to delete attachment."); }
     };
-
+    
     const filteredCases = useMemo(() => cases.filter(c => (activeFilter === 'All' || c.tags?.includes(activeFilter)) && (searchTerm === '' || c.clientName.toLowerCase().includes(searchTerm.toLowerCase()) || c.caseTitle.toLowerCase().includes(searchTerm.toLowerCase()) || c.caseNumber.toLowerCase().includes(searchTerm.toLowerCase()) || c.courtName.toLowerCase().includes(searchTerm.toLowerCase()))), [cases, searchTerm, activeFilter]);
     const upcomingHearings = useMemo(() => { const today = new Date(); today.setHours(0, 0, 0, 0); return cases.flatMap(c => (c.hearingDates || []).map(dateStr => ({ ...c, hearingDate: new Date(dateStr) }))).filter(item => item.hearingDate >= today).sort((a, b) => a.hearingDate - b.hearingDate).slice(0, 5); }, [cases]);
     const allTags = useMemo(() => ['All', ...Array.from(new Set(cases.flatMap(c => c.tags || [])))], [cases]);
-    const handleLogout = async () => { try { await signOut(auth); } catch (error) { console.error("Error signing out: ", error); toast.error("Failed to sign out."); } };
+    const handleLogout = async () => { try { await signOut(auth); toast.info("You have been logged out."); } catch (error) { console.error("Error signing out: ", error); toast.error("Failed to sign out."); } };
 
     return (
         <>
-            <header className="bg-white shadow-md sticky top-0 z-20">
+             <header className="bg-white shadow-md sticky top-0 z-20">
                 <div className="container mx-auto px-4 sm:px-6 lg:px-8"><div className="flex justify-between items-center py-4"><h1 className="text-2xl font-bold text-slate-800">CaseFile Pro</h1><div className="flex items-center space-x-2 sm:space-x-4">
-                    <button onClick={handleRequestNotificationPermission} className={`p-2 rounded-full transition-colors ${notificationPermission === 'granted' ? 'text-green-600 bg-green-100' : 'text-slate-600 hover:bg-slate-200'}`} title={notificationPermission === 'granted' ? 'Notifications are enabled' : 'Click to enable notifications'}>
+                    <button onClick={handleRequestNotificationPermission} className={`p-2 rounded-full transition-colors ${notificationPermission === 'granted' ? 'text-green-600 bg-green-100' : 'text-slate-600 hover:bg-slate-200'}`} title={notificationPermission === 'granted' ? 'Notifications enabled' : 'Enable notifications'}>
                         {notificationPermission === 'granted' ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />}
                     </button>
                     <p className="text-sm text-slate-600 hidden sm:block">Welcome, {user.email}</p>
@@ -356,6 +359,9 @@ function CaseManagementSystem({ user }) {
         </>
     );
 }
+
+// All other components (InfoItem, CaseFormModal, InputField, ConfirmDeleteModal) remain the same.
+// They are included here for completeness.
 
 const InfoItem = ({ icon: Icon, label, value }) => (<div className="flex items-start"><Icon className="w-4 h-4 text-slate-400 mt-0.5 mr-3 flex-shrink-0" /><div><p className="text-xs text-slate-500">{label}</p><p className="font-medium text-slate-800">{value}</p></div></div>);
 
