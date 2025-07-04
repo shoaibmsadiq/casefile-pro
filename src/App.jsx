@@ -48,14 +48,14 @@ import { ToastContainer, toast } from 'react-toastify';
 // 2. FIREBASE CONFIGURATION AND INITIALIZATION
 // -----------------------------------------------------------------------------
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
-};
-
+    apiKey: "AIzaSyC93J87oWxUx6RMsOfs0Xs6CNwbwfMmmBQ",
+    authDomain: "casefile-pro.firebaseapp.com",
+    projectId: "casefile-pro",
+    storageBucket: "casefile-pro.firebasestorage.app",
+    messagingSenderId: "387776954987",
+    appId: "1:387776954987:web:c1bc983a56efdc3539a72e",
+    measurementId: "G-TXG9HN3S89"
+  };
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const fbConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : firebaseConfig;
 // REMOVED: initialAuthToken is no longer needed.
