@@ -1,6 +1,6 @@
 // Welcome to your Case File Management App!
-// FEATURE UPDATE: This version introduces an advanced dashboard with charts for case analysis.
-// It uses the 'recharts' and 'moment' libraries to display case statistics.
+// FEATURE UPDATE: This version introduces Task Management within each case.
+// Users can now add, edit, and complete tasks with due dates for every case file.
 
 // -----------------------------------------------------------------------------
 // 1. DEPENDENCIES
@@ -41,7 +41,7 @@ import {
     onMessage 
 } from "firebase/messaging";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { ShieldCheck, ShieldX, Archive, Activity, FileText, Bell, BellOff, Paperclip, UploadCloud, FileWarning, FilePlus, Search, Edit, Trash2, X, Calendar as CalendarIcon, Briefcase, User, Users, MapPin, Tag, ChevronDown, LogOut, Loader2 } from 'lucide-react';
+import { ListTodo, CheckSquare, ShieldCheck, ShieldX, Archive, Activity, FileText, Bell, BellOff, Paperclip, UploadCloud, FileWarning, FilePlus, Search, Edit, Trash2, X, Calendar as CalendarIcon, Briefcase, User, Users, MapPin, Tag, ChevronDown, LogOut, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ToastContainer, toast } from 'react-toastify';
 import moment from 'moment';
@@ -260,6 +260,10 @@ function CaseManagementSystem({ user }) {
                                         <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">TAGS</h4><div className="flex flex-wrap gap-2">{c.tags?.map(tag => <span key={tag} className="text-xs font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded-full">{tag}</span>)}</div></div>
                                         <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">NOTES</h4><p className="text-sm bg-slate-50 p-3 rounded-md whitespace-pre-wrap">{c.notes}</p></div>
                                         {c.decisionSummary && <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">DECISION</h4><p className="text-sm bg-amber-50 p-3 rounded-md whitespace-pre-wrap">{c.decisionSummary}</p></div>}
+                                        
+                                        {/* NEW: Task Management Section */}
+                                        <TaskSection caseId={c.id} />
+
                                         {c.attachments?.length > 0 && <div className="mt-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">ATTACHMENTS</h4><ul className="space-y-2">{c.attachments.map((att, i) => <li key={i} className="flex items-center justify-between bg-slate-50 p-2 rounded-md"><a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 truncate"><Paperclip className="w-4 h-4" /><span className="truncate">{att.name}</span></a><button onClick={() => handleDeleteAttachment(c.id, att)} className="p-1 text-slate-400 hover:text-red-600"><X className="w-3 h-3" /></button></li>)}</ul></div>}
                                     </div>
                                     <div className="flex justify-end space-x-2 mt-4"><button onClick={() => handleEditCase(c)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-full"><Edit className="w-4 h-4" /></button><button onClick={() => handleInitiateDelete(c.id)} className="p-2 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-full"><Trash2 className="w-4 h-4" /></button></div>
@@ -274,6 +278,93 @@ function CaseManagementSystem({ user }) {
                 )}
             </main>
         </>
+    );
+}
+
+// NEW: Task Management Component
+function TaskSection({ caseId }) {
+    const [tasks, setTasks] = useState([]);
+    const [newTaskTitle, setNewTaskTitle] = useState('');
+    const [newTaskDueDate, setNewTaskDueDate] = useState('');
+    const userId = auth.currentUser?.uid;
+    const tasksCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/cases/${caseId}/tasks`);
+
+    useEffect(() => {
+        const q = query(tasksCollectionRef);
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const tasksData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setTasks(tasksData.sort((a, b) => (a.status === 'Completed' ? 1 : -1) - (b.status === 'Completed' ? 1 : -1) || new Date(a.dueDate) - new Date(b.dueDate)));
+        });
+        return () => unsubscribe();
+    }, [caseId]);
+
+    const handleAddTask = async (e) => {
+        e.preventDefault();
+        if (!newTaskTitle.trim()) return;
+        try {
+            await addDoc(tasksCollectionRef, {
+                title: newTaskTitle,
+                dueDate: newTaskDueDate || null,
+                status: 'Pending',
+                createdAt: serverTimestamp()
+            });
+            setNewTaskTitle('');
+            setNewTaskDueDate('');
+            toast.success("Task added!");
+        } catch (error) {
+            toast.error("Failed to add task.");
+        }
+    };
+
+    const handleToggleTaskStatus = async (task) => {
+        const taskDocRef = doc(db, `artifacts/${appId}/users/${userId}/cases/${caseId}/tasks`, task.id);
+        try {
+            await updateDoc(taskDocRef, {
+                status: task.status === 'Pending' ? 'Completed' : 'Pending'
+            });
+        } catch (error) {
+            toast.error("Failed to update task status.");
+        }
+    };
+    
+    const handleDeleteTask = async (taskId) => {
+        if (window.confirm("Are you sure you want to delete this task?")) {
+            const taskDocRef = doc(db, `artifacts/${appId}/users/${userId}/cases/${caseId}/tasks`, taskId);
+            try {
+                await deleteDoc(taskDocRef);
+                toast.success("Task deleted.");
+            } catch (error) {
+                toast.error("Failed to delete task.");
+            }
+        }
+    };
+
+    return (
+        <div className="mt-4 pt-4 border-t">
+            <h4 className="font-semibold text-xs text-slate-500 mb-2 flex items-center gap-2"><ListTodo className="w-4 h-4" /> TASKS</h4>
+            <div className="space-y-2 mb-3">
+                {tasks.map(task => {
+                    const isOverdue = task.status === 'Pending' && task.dueDate && moment(task.dueDate).isBefore(moment(), 'day');
+                    return (
+                        <div key={task.id} className="flex items-center justify-between text-sm bg-slate-50 p-2 rounded-md">
+                            <div className="flex items-center gap-2">
+                                <input type="checkbox" checked={task.status === 'Completed'} onChange={() => handleToggleTaskStatus(task)} className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                <span className={`${task.status === 'Completed' ? 'line-through text-slate-400' : ''} ${isOverdue ? 'text-red-600 font-semibold' : 'text-slate-700'}`}>{task.title}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {task.dueDate && <span className={`text-xs ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-500'}`}>{moment(task.dueDate).format('MMM D')}</span>}
+                                <button onClick={() => handleDeleteTask(task.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            <form onSubmit={handleAddTask} className="flex gap-2">
+                <input type="text" value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} placeholder="Add a new task..." className="flex-grow w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm" />
+                <input type="date" value={newTaskDueDate} onChange={e => setNewTaskDueDate(e.target.value)} className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm" />
+                <button type="submit" className="bg-blue-500 text-white px-3 rounded-lg text-sm hover:bg-blue-600">Add</button>
+            </form>
+        </div>
     );
 }
 
