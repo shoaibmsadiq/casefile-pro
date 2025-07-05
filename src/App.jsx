@@ -1,6 +1,6 @@
 // Welcome to your Case File Management App!
-// FEATURE UPDATE: This version introduces the ability to edit existing tasks.
-// Users can now click an edit icon to change the title of a task directly in the list.
+// FEATURE UPDATE: This version adds a "Client WhatsApp Number" field to the case form and details view.
+// The actual WhatsApp notification logic will be implemented later.
 
 // -----------------------------------------------------------------------------
 // 1. DEPENDENCIES
@@ -41,7 +41,7 @@ import {
     onMessage 
 } from "firebase/messaging";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { ListTodo, CheckSquare, ShieldCheck, ShieldX, Archive, Activity, FileText, Bell, BellOff, Paperclip, UploadCloud, FileWarning, FilePlus, Search, Edit, Trash2, X, Calendar as CalendarIcon, Briefcase, User, Users, MapPin, Tag, ChevronDown, LogOut, Loader2 } from 'lucide-react';
+import { MessageSquare, ListTodo, CheckSquare, ShieldCheck, ShieldX, Archive, Activity, FileText, Bell, BellOff, Paperclip, UploadCloud, FileWarning, FilePlus, Search, Edit, Trash2, X, Calendar as CalendarIcon, Briefcase, User, Users, MapPin, Tag, ChevronDown, LogOut, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ToastContainer, toast } from 'react-toastify';
 import moment from 'moment';
@@ -278,15 +278,15 @@ function CaseManagementSystem({ user }) {
     );
 }
 
-// NEW: Task Management Component
+// Task Management Component
 function TaskSection({ caseId }) {
     const [tasks, setTasks] = useState([]);
     const [newTaskTitle, setNewTaskTitle] = useState('');
     const [newTaskDueDate, setNewTaskDueDate] = useState('');
     const [newTaskDueTime, setNewTaskDueTime] = useState('');
     const [notify, setNotify] = useState(false);
-    const [editingTaskId, setEditingTaskId] = useState(null); // State to track which task is being edited
-    const [editingTaskTitle, setEditingTaskTitle] = useState(''); // State for the new title of the task being edited
+    const [editingTaskId, setEditingTaskId] = useState(null);
+    const [editingTaskTitle, setEditingTaskTitle] = useState('');
     const userId = auth.currentUser?.uid;
     const tasksCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/cases/${caseId}/tasks`);
 
@@ -376,21 +376,19 @@ function TaskSection({ caseId }) {
                         <div key={task.id} className="flex items-center justify-between text-sm bg-slate-50 p-2 rounded-md">
                             {editingTaskId === task.id ? (
                                 <div className="flex-grow flex items-center gap-2">
-                                    <input type="text" value={editingTaskTitle} onChange={(e) => setEditingTaskTitle(e.target.value)} className="flex-grow w-full px-2 py-1 border border-blue-500 rounded-md text-sm" autoFocus />
-                                    <button onClick={() => handleUpdateTask(task.id)} className="p-1 text-green-600 hover:bg-green-100 rounded-full"><CheckSquare className="w-4 h-4" /></button>
-                                    <button onClick={handleCancelEdit} className="p-1 text-red-600 hover:bg-red-100 rounded-full"><X className="w-4 h-4" /></button>
+                                    <input type="text" value={editingTaskTitle} onChange={(e) => setEditingTaskTitle(e.target.value)} className="flex-grow w-full px-2 py-1 border border-blue-500 rounded-md text-sm" autoFocus onKeyDown={(e) => e.key === 'Enter' && handleUpdateTask(task.id)} onBlur={handleCancelEdit} />
                                 </div>
                             ) : (
                                 <>
-                                    <div className="flex items-center gap-2 flex-grow">
-                                        <input type="checkbox" checked={task.status === 'Completed'} onChange={() => handleToggleTaskStatus(task)} className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                    <div className="flex items-center gap-2 flex-grow cursor-pointer" onClick={() => handleToggleTaskStatus(task)}>
+                                        <input type="checkbox" checked={task.status === 'Completed'} readOnly className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                                         <span className={`${task.status === 'Completed' ? 'line-through text-slate-400' : ''} ${isOverdue ? 'text-red-600 font-semibold' : 'text-slate-700'}`}>{task.title}</span>
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0">
                                         {task.dueDate && <span className={`text-xs ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-500'}`}>{moment(task.dueDate).format('MMM D')}{task.dueTime ? `, ${moment(task.dueTime, 'HH:mm').format('h:mm A')}` : ''}</span>}
                                         {task.notify && <Bell className="w-3 h-3 text-blue-500" title="Notification is set for this task" />}
-                                        <button onClick={() => handleStartEdit(task)} className="text-slate-400 hover:text-blue-600"><Edit className="w-3 h-3" /></button>
-                                        <button onClick={() => handleDeleteTask(task.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
+                                        <button onClick={(e) => {e.stopPropagation(); handleStartEdit(task)}} className="text-slate-400 hover:text-blue-600"><Edit className="w-3 h-3" /></button>
+                                        <button onClick={(e) => {e.stopPropagation(); handleDeleteTask(task.id)}} className="text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
                                     </div>
                                 </>
                             )}
