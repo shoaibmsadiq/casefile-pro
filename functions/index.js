@@ -1,132 +1,128 @@
-// functions/index.js
+// This is the final, production-ready code for sending task reminders.
+// It runs every 15 minutes, checks for upcoming tasks, and sends notifications.
 
-// Firebase Admin SDK ko import karein, is se hum Firebase services ko server se access kar sakte hain.
-const functions = require("firebase-functions");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+const moment = require("moment-timezone");
+const logger = require("firebase-functions/logger");
 
-// Firebase Admin ko initialize karein
 admin.initializeApp();
-
-// Firestore database ka reference hasil karein
 const db = admin.firestore();
+const auth = admin.auth(); // Initialize Auth service
 
-/**
- * Yeh function har roz subah 9:00 baje Pakistan Time (Asia/Karachi) par chalega.
- * Yeh Firestore database mein check karega ke agle 3 dinon mein kin cases ki sunwai (hearing) hai.
- * Jin cases ki hearing hogi, unke users ko Push Notification aur Email bhejega.
- */
-exports.sendHearingReminders = functions.pubsub
-  .schedule("every day 09:00")
-  .timeZone("Asia/Karachi")
-  .onRun(async (context) => {
-    console.log("Checking for upcoming hearings...");
+// This function will run every 15 minutes.
+exports.checkTaskReminders = onSchedule({
+    schedule: "every 15 minutes",
+    timeZone: "Asia/Karachi",
+    // It's good practice to set a timeout and memory limit
+    timeoutSeconds: 540,
+    memory: "256MiB",
+  }, async (context) => {
+    logger.info("Checking for task reminders...");
 
-    // Reminder kitne din pehle bhejna hai (e.g., 3 din)
-    const REMINDER_DAYS_BEFORE = 3;
-
-    const today = new Date();
-    const targetDate = new Date(today);
-    targetDate.setDate(today.getDate() + REMINDER_DAYS_BEFORE);
+    const now = moment();
     
-    // Date ko 'YYYY-MM-DD' format mein convert karein, jaisa ke form mein save hota hai
-    const year = targetDate.getFullYear();
-    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-    const day = String(targetDate.getDate()).padStart(2, '0');
-    const targetDateString = `${year}-${month}-${day}`;
-
-    console.log(`Targeting hearings for date: ${targetDateString}`);
-
-    // Tamam users ke data ko hasil karein
-    const usersSnapshot = await db.collectionGroup("users").get();
-
-    for (const userDoc of usersSnapshot.docs) {
-      const userId = userDoc.id;
-      const userEmail = userDoc.data().email; // User ka email hasil karein
-
-      // User ke tamam cases check karein
-      // ZAROORI: 'YOUR_APP_ID' ko apni asal App ID se replace karein
-      const casesSnapshot = await db.collection(`artifacts/1:387776954987:web:c1bc983a56efdc3539a72e/users/${userId}/cases`).get();
+    // Get all cases across all users using a collection group query
+    const casesSnapshot = await db.collectionGroup("cases").get();
+    
+    for (const caseDoc of casesSnapshot.docs) {
+      const caseData = caseDoc.data();
       
-      for (const caseDoc of casesSnapshot.docs) {
-        const caseData = caseDoc.data();
-        const hearingDates = caseData.hearingDates || [];
+      // Safely get the userId from the document's path
+      const pathParts = caseDoc.ref.path.split('/');
+      // Expected path: artifacts/{appId}/users/{userId}/cases/{caseId}
+      if (pathParts.length < 5) continue;
+      const userId = pathParts[3];
 
-        // Check karein ke case ki hearing dates mein target date shamil hai ya nahi
-        if (hearingDates.includes(targetDateString)) {
-          console.log(`Found a hearing for user ${userId} on ${targetDateString} for case: ${caseData.caseTitle}`);
+      if (!caseData || !userId) continue;
+      
+      const tasksSnapshot = await caseDoc.ref.collection("tasks").get();
+
+      for (const taskDoc of tasksSnapshot.docs) {
+        const task = taskDoc.data();
+
+        if (task.status === "Pending" && task.notify && task.dueDate && task.dueTime) {
+          const dueDateTime = moment.tz(`${task.dueDate} ${task.dueTime}`, "Asia/Karachi");
           
-          // 1. Push Notification Bhejein
-          await sendPushNotification(userId, caseData);
+          // Check if the due time is within the next 15 minutes
+          if (dueDateTime.isAfter(now) && dueDateTime.isBefore(now.clone().add(15, 'minutes'))) {
+            logger.info(`Found task to notify: "${task.title}" for case "${caseData.caseTitle}"`);
+            
+            try {
+                // Get user's email directly from Firebase Auth
+                const userRecord = await auth.getUser(userId);
+                const userEmail = userRecord.email;
 
-          // 2. Email Reminder Bhejein (Agar Trigger Email extension installed hai)
-          await sendEmailReminder(userEmail, caseData, targetDateString);
+                const lawyerInfo = { email: userEmail, id: userId };
+                const clientInfo = { email: caseData.clientEmail, whatsapp: caseData.clientWhatsapp };
+
+                // Send notifications
+                await sendPushNotification(lawyerInfo, task, caseData);
+                if (lawyerInfo.email) {
+                    await sendEmailReminder(lawyerInfo.email, task, caseData, "Lawyer");
+                }
+                if (clientInfo.email) {
+                    await sendEmailReminder(clientInfo.email, task, caseData, "Client");
+                }
+            } catch (error) {
+                logger.error(`Error fetching user data for UID: ${userId}`, error);
+            }
+          }
         }
       }
     }
+    logger.info("Task reminder check complete.");
     return null;
   });
 
-/**
- * User ko Push Notification bhejta hai.
- * @param {string} userId - User ki ID.
- * @param {object} caseData - Case ka data.
- */
-async function sendPushNotification(userId, caseData) {
-  // User ke save kiye hue device tokens hasil karein
-  // ZAROORI: 'YOUR_APP_ID' ko apni asal App ID se replace karein
-  const tokensSnapshot = await db.collection(`artifacts/1:387776954987:web:c1bc983a56efdc3539a72e/users/${userId}/fcmTokens`).get();
-  const tokens = tokensSnapshot.docs.map((doc) => doc.data().token);
-
-  if (tokens.length === 0) {
-    console.log(`No device tokens found for user ${userId}.`);
+async function sendPushNotification(userInfo, task, caseData) {
+  const tokensSnapshot = await db.collection(`artifacts/default-app-id/users/${userInfo.id}/fcmTokens`).get();
+  if (tokensSnapshot.empty) {
+    logger.warn(`No FCM tokens found for user ${userInfo.id}.`);
     return;
   }
+  
+  const tokens = tokensSnapshot.docs.map((doc) => doc.data().token);
 
   const payload = {
     notification: {
-      title: "Hearing Reminder!",
-      body: `Aapke case "${caseData.caseTitle}" ki sunwai 3 din mein hai.`,
-      icon: "https://your-website.com/favicon.ico", // Apni app ka icon yahan dalein
+      title: `Task Reminder: ${task.title}`,
+      body: `A task for case "${caseData.caseTitle}" is due soon.`,
+      icon: "https://malikawanlaw.netlify.app/favicon.ico",
     },
   };
 
-  console.log(`Sending push notification to ${tokens.length} devices for user ${userId}.`);
+  logger.info(`Sending push notification to ${tokens.length} device(s) for user ${userInfo.id}.`);
   await admin.messaging().sendToDevice(tokens, payload);
 }
 
-/**
- * User ko Email Reminder bhejta hai.
- * @param {string} userEmail - User ka email address.
- * @param {object} caseData - Case ka data.
- * @param {string} hearingDate - Hearing ki tareekh.
- */
-async function sendEmailReminder(userEmail, caseData, hearingDate) {
-    if (!userEmail) {
-        console.log(`No email found for this user.`);
+async function sendEmailReminder(recipientEmail, task, caseData, recipientType) {
+    if (!recipientEmail) {
+        logger.warn(`No email address provided for ${recipientType}.`);
         return;
     }
 
-    // "Trigger Email" extension ke liye Firestore ke 'mail' collection mein ek document add karein
-    // NOTE: Iske liye aapko Firebase Console se "Trigger Email" extension install karna hoga.
     try {
         await db.collection("mail").add({
-            to: userEmail,
+            to: recipientEmail,
             message: {
-                subject: `Hearing Reminder: ${caseData.caseTitle}`,
+                subject: `Reminder: ${task.title} - Case: ${caseData.caseTitle}`,
                 html: `
-                    <h1>Hearing Reminder</h1>
+                    <h1>Task Reminder</h1>
                     <p>Assalam-o-Alaikum,</p>
-                    <p>Yeh ek yaad dehani hai ke aapke case "<strong>${caseData.caseTitle}</strong>" ki sunwai 3 din mein hai.</p>
-                    <p><strong>Case Number:</strong> ${caseData.caseNumber}</p>
-                    <p><strong>Adalat:</strong> ${caseData.courtName}</p>
-                    <p><strong>Sunwai ki Tareekh:</strong> ${new Date(hearingDate).toDateString()}</p>
+                    <p>This is a reminder for the following task associated with the case "<strong>${caseData.caseTitle}</strong>":</p>
+                    <hr>
+                    <p><strong>Task:</strong> ${task.title}</p>
+                    <p><strong>Due Date:</strong> ${moment(task.dueDate).format('LL')}</p>
+                    <p><strong>Due Time:</strong> ${moment(task.dueTime, 'HH:mm').format('h:mm A')}</p>
+                    <hr>
                     <br/>
-                    <p>Shukriya,<br/>CaseFile Pro</p>
+                    <p>Thank you for using CaseFile Pro.</p>
                 `,
             },
         });
-        console.log(`Email reminder queued for ${userEmail}`);
+        logger.info(`Email reminder queued for ${recipientType} at ${recipientEmail}`);
     } catch (error) {
-        console.error("Failed to queue email:", error);
+        logger.error("Failed to queue email:", error);
     }
 }
