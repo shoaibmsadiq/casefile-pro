@@ -1,6 +1,6 @@
 // Welcome to your Case File Management App!
-// FEATURE UPDATE: This version introduces Task Management with due dates, times, and a notification flag.
-// It also adds a Client Email field to the case for notification purposes.
+// FEATURE UPDATE: This version introduces the ability to edit existing tasks.
+// Users can now click an edit icon to change the title of a task directly in the list.
 
 // -----------------------------------------------------------------------------
 // 1. DEPENDENCIES
@@ -283,8 +283,10 @@ function TaskSection({ caseId }) {
     const [tasks, setTasks] = useState([]);
     const [newTaskTitle, setNewTaskTitle] = useState('');
     const [newTaskDueDate, setNewTaskDueDate] = useState('');
-    const [newTaskDueTime, setNewTaskDueTime] = useState(''); // NEW: State for time
-    const [notify, setNotify] = useState(false); // NEW: State for notification checkbox
+    const [newTaskDueTime, setNewTaskDueTime] = useState('');
+    const [notify, setNotify] = useState(false);
+    const [editingTaskId, setEditingTaskId] = useState(null); // State to track which task is being edited
+    const [editingTaskTitle, setEditingTaskTitle] = useState(''); // State for the new title of the task being edited
     const userId = auth.currentUser?.uid;
     const tasksCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/cases/${caseId}/tasks`);
 
@@ -304,8 +306,8 @@ function TaskSection({ caseId }) {
             await addDoc(tasksCollectionRef, {
                 title: newTaskTitle,
                 dueDate: newTaskDueDate || null,
-                dueTime: newTaskDueTime || null, // NEW: Save time
-                notify: notify, // NEW: Save notify status
+                dueTime: newTaskDueTime || null,
+                notify: notify,
                 status: 'Pending',
                 createdAt: serverTimestamp()
             });
@@ -316,6 +318,28 @@ function TaskSection({ caseId }) {
             toast.success("Task added!");
         } catch (error) {
             toast.error("Failed to add task.");
+        }
+    };
+    
+    const handleStartEdit = (task) => {
+        setEditingTaskId(task.id);
+        setEditingTaskTitle(task.title);
+    };
+
+    const handleCancelEdit = () => {
+        setEditingTaskId(null);
+        setEditingTaskTitle('');
+    };
+
+    const handleUpdateTask = async (taskId) => {
+        if (!editingTaskTitle.trim()) return;
+        const taskDocRef = doc(db, `artifacts/${appId}/users/${userId}/cases/${caseId}/tasks`, taskId);
+        try {
+            await updateDoc(taskDocRef, { title: editingTaskTitle });
+            toast.success("Task updated!");
+            handleCancelEdit();
+        } catch (error) {
+            toast.error("Failed to update task.");
         }
     };
 
@@ -350,15 +374,26 @@ function TaskSection({ caseId }) {
                     const isOverdue = task.status === 'Pending' && task.dueDate && moment(`${task.dueDate} ${task.dueTime || '23:59'}`).isBefore(moment());
                     return (
                         <div key={task.id} className="flex items-center justify-between text-sm bg-slate-50 p-2 rounded-md">
-                            <div className="flex items-center gap-2">
-                                <input type="checkbox" checked={task.status === 'Completed'} onChange={() => handleToggleTaskStatus(task)} className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                                <span className={`${task.status === 'Completed' ? 'line-through text-slate-400' : ''} ${isOverdue ? 'text-red-600 font-semibold' : 'text-slate-700'}`}>{task.title}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                {task.dueDate && <span className={`text-xs ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-500'}`}>{moment(task.dueDate).format('MMM D')}{task.dueTime ? `, ${moment(task.dueTime, 'HH:mm').format('h:mm A')}` : ''}</span>}
-                                {task.notify && <Bell className="w-3 h-3 text-blue-500" title="Notification is set for this task" />}
-                                <button onClick={() => handleDeleteTask(task.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
-                            </div>
+                            {editingTaskId === task.id ? (
+                                <div className="flex-grow flex items-center gap-2">
+                                    <input type="text" value={editingTaskTitle} onChange={(e) => setEditingTaskTitle(e.target.value)} className="flex-grow w-full px-2 py-1 border border-blue-500 rounded-md text-sm" autoFocus />
+                                    <button onClick={() => handleUpdateTask(task.id)} className="p-1 text-green-600 hover:bg-green-100 rounded-full"><CheckSquare className="w-4 h-4" /></button>
+                                    <button onClick={handleCancelEdit} className="p-1 text-red-600 hover:bg-red-100 rounded-full"><X className="w-4 h-4" /></button>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex items-center gap-2 flex-grow">
+                                        <input type="checkbox" checked={task.status === 'Completed'} onChange={() => handleToggleTaskStatus(task)} className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                        <span className={`${task.status === 'Completed' ? 'line-through text-slate-400' : ''} ${isOverdue ? 'text-red-600 font-semibold' : 'text-slate-700'}`}>{task.title}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                        {task.dueDate && <span className={`text-xs ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-500'}`}>{moment(task.dueDate).format('MMM D')}{task.dueTime ? `, ${moment(task.dueTime, 'HH:mm').format('h:mm A')}` : ''}</span>}
+                                        {task.notify && <Bell className="w-3 h-3 text-blue-500" title="Notification is set for this task" />}
+                                        <button onClick={() => handleStartEdit(task)} className="text-slate-400 hover:text-blue-600"><Edit className="w-3 h-3" /></button>
+                                        <button onClick={() => handleDeleteTask(task.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     );
                 })}
@@ -379,8 +414,8 @@ function TaskSection({ caseId }) {
     );
 }
 
-const Dashboard = ({ cases }) => { /* ... same as before ... */ };
-const StatCard = ({ icon: Icon, title, value, color }) => { /* ... same as before ... */ };
+const Dashboard = ({ cases }) => { const caseTypeData = useMemo(() => { const counts = cases.reduce((acc, c) => { (c.tags || ['Uncategorized']).forEach(tag => { acc[tag] = (acc[tag] || 0) + 1; }); return acc; }, {}); return Object.entries(counts).map(([name, value]) => ({ name, value })); }, [cases]); const monthlyData = useMemo(() => { const months = Array.from({length: 6}, (_, i) => moment().subtract(i, 'months').format('MMM YY')).reverse(); const counts = months.reduce((acc, m) => ({...acc, [m]: 0}), {}); cases.forEach(c => { if (c.createdAt) { const month = moment(c.createdAt).format('MMM YY'); if(month in counts) counts[month]++; } }); return Object.entries(counts).map(([name, cases]) => ({ name, cases })); }, [cases]); const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#ff4d4d']; const activeCases = cases.filter(c => ['Active', 'Pending', 'Appeal'].includes(c.caseStatus)).length; const decidedCases = cases.filter(c => ['Decided', 'Closed'].includes(c.caseStatus)).length; return (<div className="mb-8"><h2 className="text-2xl font-bold text-slate-700 mb-4">Dashboard</h2><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><StatCard icon={Briefcase} title="Total Cases" value={cases.length} color="blue" /><StatCard icon={Activity} title="Active Cases" value={activeCases} color="green" /><StatCard icon={Archive} title="Decided/Closed" value={decidedCases} color="orange" /><StatCard icon={CalendarIcon} title="Upcoming Hearings" value={cases.flatMap(c => c.hearingDates || []).filter(d => new Date(d) >= new Date()).length} color="purple" /><div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-lg"><h3 className="font-bold text-slate-800 text-lg mb-4">Case Types Distribution</h3><ResponsiveContainer width="100%" height={300}><PieChart><Pie data={caseTypeData} cx="50%" cy="50%" labelLine={false} outerRadius={100} fill="#8884d8" dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>{caseTypeData.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip /><Legend /></PieChart></ResponsiveContainer></div><div className="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-lg"><h3 className="font-bold text-slate-800 text-lg mb-4">New Cases (Last 6 Months)</h3><ResponsiveContainer width="100%" height={300}><BarChart data={monthlyData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis /><Tooltip /><Legend /><Bar dataKey="cases" fill="#8884d8" name="New Cases" /></BarChart></ResponsiveContainer></div></div></div>); };
+const StatCard = ({ icon: Icon, title, value, color }) => { const colors = { blue: 'bg-blue-100 text-blue-600', green: 'bg-green-100 text-green-600', orange: 'bg-orange-100 text-orange-600', purple: 'bg-purple-100 text-purple-600' }; return (<div className="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4"><div className={`p-3 rounded-full ${colors[color]}`}><Icon className="w-6 h-6" /></div><div><p className="text-sm text-slate-500">{title}</p><p className="text-2xl font-bold text-slate-800">{value}</p></div></div>); };
 const InfoItem = ({ icon: Icon, label, value }) => (<div className="flex items-start"><Icon className="w-4 h-4 text-slate-400 mt-0.5 mr-3 flex-shrink-0" /><div><p className="text-xs text-slate-500">{label}</p><p className="font-medium text-slate-800">{value}</p></div></div>);
 const CaseStatusBadge = ({ status }) => { const styles = { 'Active': 'bg-green-100 text-green-800', 'Pending': 'bg-yellow-100 text-yellow-800', 'Appeal': 'bg-blue-100 text-blue-800', 'Decided': 'bg-purple-100 text-purple-800', 'Closed': 'bg-slate-100 text-slate-800' }; return (<span className={`px-2 py-1 text-xs font-medium rounded-full ${styles[status] || styles['default']}`}>{status}</span>); };
 function CaseFormModal({ isOpen, onClose, onSave, caseData }) { const initial = { clientName: '', clientEmail: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '' }; const [formData, setFormData] = useState(initial); const [newDate, setNewDate] = useState(''); const [newTag, setNewTag] = useState(''); const [fileToUpload, setFileToUpload] = useState(null); const [uploadProgress, setUploadProgress] = useState(0); const [loading, setLoading] = useState(false); useEffect(() => { if (caseData) setFormData({ ...initial, ...caseData }); else setFormData(initial); setFileToUpload(null); setUploadProgress(0); }, [caseData, isOpen]); const handleChange = (e) => setFormData(p => ({ ...p, [e.target.name]: e.target.value })); const handleFileChange = (e) => { if (e.target.files[0]) setFileToUpload(e.target.files[0]); }; const handleAddDate = () => { if (newDate && !formData.hearingDates.includes(newDate)) { setFormData(p => ({ ...p, hearingDates: [...p.hearingDates, newDate].sort() })); setNewDate(''); } }; const handleRemoveDate = (d) => setFormData(p => ({ ...p, hearingDates: p.hearingDates.filter(date => date !== d) })); const handleAddTag = () => { if (newTag && !formData.tags.includes(newTag.trim())) { setFormData(p => ({ ...p, tags: [...p.tags, newTag.trim()] })); setNewTag(''); } }; const handleRemoveTag = (t) => setFormData(p => ({ ...p, tags: p.tags.filter(tag => tag !== t) })); const handleSubmit = async (e) => { e.preventDefault(); setLoading(true); await onSave(formData, fileToUpload, setUploadProgress); setLoading(false); }; return (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-50 z-30 flex justify-center items-center p-4" onClick={onClose}><motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}><div className="p-6 border-b"><h2 className="text-xl font-bold text-slate-800">{caseData ? 'Edit Case File' : 'Add New Case File'}</h2><button onClick={onClose} className="p-1 rounded-full text-slate-500 hover:bg-slate-200"><X className="w-5 h-5" /></button></div><form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><InputField name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} required /><InputField name="clientEmail" label="Client Email (for notifications)" type="email" value={formData.clientEmail} onChange={handleChange} /><InputField name="caseTitle" label="Case Title" value={formData.caseTitle} onChange={handleChange} required /><InputField name="courtName" label="Court Name" value={formData.courtName} onChange={handleChange} required /><InputField name="caseNumber" label="Case Number" value={formData.caseNumber} onChange={handleChange} required /><InputField name="opposingParty" label="Opposing Party" value={formData.opposingParty} onChange={handleChange} /><InputField name="fileLocation" label="File Location" value={formData.fileLocation} onChange={handleChange} /><InputField name="caseFiledOn" label="Date Filed" type="date" value={formData.caseFiledOn} onChange={handleChange} /><div><label htmlFor="caseStatus" className="block text-sm font-medium text-slate-600 mb-1">Case Status</label><select id="caseStatus" name="caseStatus" value={formData.caseStatus} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg"><option>Active</option><option>Pending</option><option>Appeal</option><option>Decided</option><option>Closed</option></select></div></div><div><label className="block text-sm font-medium">Hearing Dates</label><div className="flex gap-2 mb-2"><input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="flex-grow w-full px-3 py-2 border rounded-lg" /><button type="button" onClick={handleAddDate} className="bg-slate-200 px-4 rounded-lg">Add</button></div><div className="flex flex-wrap gap-2">{formData.hearingDates.map(date => <span key={date} className="flex items-center gap-2 bg-slate-100 text-sm px-2 py-1 rounded-full">{new Date(date).toLocaleDateString()}<button type="button" onClick={() => handleRemoveDate(date)}><X className="w-3 h-3" /></button></span>)}</div></div><div><label className="block text-sm font-medium">Tags</label><div className="flex gap-2 mb-2"><input type="text" placeholder="Add tag..." value={newTag} onChange={e => setNewTag(e.target.value)} className="flex-grow w-full px-3 py-2 border rounded-lg" /><button type="button" onClick={handleAddTag} className="bg-slate-200 px-4 rounded-lg">Add</button></div><div className="flex flex-wrap gap-2">{formData.tags.map(tag => <span key={tag} className="flex items-center gap-2 bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded-full">{tag}<button type="button" onClick={() => handleRemoveTag(tag)}><X className="w-3 h-3" /></button></span>)}</div></div><div><label htmlFor="notes" className="block text-sm font-medium">Notes</label><textarea id="notes" name="notes" rows="4" value={formData.notes} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg"></textarea></div><div><label htmlFor="decisionSummary" className="block text-sm font-medium">Decision Summary</label><textarea id="decisionSummary" name="decisionSummary" rows="4" value={formData.decisionSummary} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg"></textarea></div><div><label className="block text-sm font-medium">Attach File</label><div className="mt-2 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md"><div className="space-y-1 text-center"><UploadCloud className="mx-auto h-12 w-12 text-slate-400" /><div className="flex text-sm text-slate-600"><label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500"><span>Upload a file</span><input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} /></label><p className="pl-1">or drag and drop</p></div>{fileToUpload ? <p className="text-sm">{fileToUpload.name}</p> : <p className="text-xs text-slate-500">PDF, PNG, JPG up to 10MB</p>}</div></div>{uploadProgress > 0 && <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2"><div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${uploadProgress}%` }}></div></div>}</div><div className="pt-4 border-t flex justify-end gap-3"><button type="button" onClick={onClose} className="bg-white px-4 py-2 rounded-lg border">Cancel</button><button type="submit" disabled={loading} className="bg-blue-600 text-white px-4 py-2 rounded-lg w-28">{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Case'}</button></div></form></motion.div></motion.div>); }
