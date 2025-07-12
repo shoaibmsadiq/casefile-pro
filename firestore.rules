@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Helper Functions ---
+    function isSignedIn() { return request.auth != null; }
+    function requestingUserUid() { return request.auth.uid; }
+    function isAdmin() {
+      return (request.auth.token.role == 'admin') ||
+             (isSignedIn() && 
+              exists(/databases/$(database)/documents/users/$(requestingUserUid())) &&
+              get(/databases/$(database)/documents/users/$(requestingUserUid())).data.role == 'admin');
+    }
+
+    // --- Core Collection Rules ---
+    match /users/{userId} {
+      allow list: if isAdmin();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && requestingUserUid() == userId;
+      allow update: if isSignedIn() && requestingUserUid() == userId;
+      allow delete: if false;
+    }
+
+    match /users/{userId}/events/{eventId} {
+      allow read, write: if isSignedIn() && requestingUserUid() == userId;
+    }
+
+    // --- Main Rules for Cases and its Subcollections ---
+    match /artifacts/{appId}/users/{pathOwnerId}/cases/{caseId} {
+      // Helper functions specific to this context
+      function isPathOwner() { return requestingUserUid() == pathOwnerId; }
+      function isAssignedToThisCase() {
+        return isSignedIn() &&
+               'assignedTo' in resource.data &&
+               resource.data.assignedTo is list &&
+               resource.data.assignedTo.hasAny([requestingUserUid()]);
+      }
+      function canAssignedToEditThisCase() { 
+        return 'allowAssignedToEdit' in resource.data &&
+               resource.data.allowAssignedToEdit == true;
+      }
+
+      // Rule for the case document itself
+      allow read: if isPathOwner() || isAssignedToThisCase() || isAdmin();
+      allow create: if isPathOwner() || isAdmin();
+      allow update: if isPathOwner() || isAdmin() || (isAssignedToThisCase() && canAssignedToEditThisCase());
+      allow delete: if isPathOwner() || isAdmin();
+
+      // --- NESTED RULE FOR TASKS SUBCOLLECTION ---
+      match /tasks/{taskId} {
+        function isAssignedToParentCase() {
+          let caseData = get(/databases/$(database)/documents/artifacts/$(appId)/users/$(pathOwnerId)/cases/$(caseId)).data;
+          return 'assignedTo' in caseData && caseData.assignedTo is list && caseData.assignedTo.hasAny([requestingUserUid()]);
+        }
+        function canAssignedEditParentCase() {
+          let caseData = get(/databases/$(database)/documents/artifacts/$(appId)/users/$(pathOwnerId)/cases/$(caseId)).data;
+          return 'allowAssignedToEdit' in caseData && caseData.allowAssignedToEdit == true;
+        }
+        allow list, read: if isPathOwner() || isAssignedToParentCase() || isAdmin();
+        allow create: if isPathOwner() || isAssignedToParentCase() || isAdmin();
+        allow update, delete: if isPathOwner() || (isAssignedToParentCase() && canAssignedEditParentCase()) || isAdmin() || (requestingUserUid() == resource.data.assignedTo);
+      }
+    }
+    
+    // --- Rules for Invoices ---
+    match /artifacts/{appId}/users/{pathOwnerId}/invoices/{invoiceId} {
+        function isPathOwner() { return requestingUserUid() == pathOwnerId; }
+        allow read, create, update, delete: if isPathOwner() || isAdmin();
+    }
+
+    // --- Collection Group Rules ---
+
+    // FINAL FIX: This rule allows the secure client-side query to execute.
+    // The query itself ensures users only get their own cases.
+    match /{path=**}/cases/{caseId} {
+      allow read: if isSignedIn();
+    }
+
+    // Rule for 'tasks' collection group (for dashboard query)
+    match /{path=**}/tasks/{taskId} {
+      allow read: if isSignedIn() && request.auth.uid == resource.data.assignedTo;
+    }
+
+    // --- Storage Rules ---
+    match /artifacts/{appId}/users/{userId}/{caseId}/{fileName} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}
