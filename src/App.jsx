@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
@@ -7,6 +7,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
   getIdTokenResult,
+sendEmailVerification, // Yeh add karein
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -24,7 +25,8 @@ import {
   collectionGroup, 
   where,           
   orderBy,         
-  limit,           
+  getDoc,// Yeh add karein
+  setDoc,
 } from 'firebase/firestore';
 import {
     getStorage,
@@ -40,11 +42,12 @@ import {
 import {
   Users, Briefcase, Loader2, FilePlus, Search, Edit, Trash2, X, ChevronDown,
   Archive, Activity, Paperclip, UploadCloud, FileWarning, Calendar as CalendarIcon, 
-  User, MapPin, Bell, CircleDollarSign, PlusCircle, FileDown, FileText, CheckCircle2, ListTodo, Clock, Inbox, CalendarDays
+  User, MapPin, Bell, CircleDollarSign, PlusCircle, FileDown, FileText, CheckCircle2, ListTodo, Clock, Inbox, CalendarDays,
+  LogOut, MailCheck, UserPlus, ShieldCheck, Copy, MessageSquare, Send,Phone
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ToastContainer, toast } from 'react-toastify';
+import { toast } from 'react-toastify';
 import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import jsPDF from 'jspdf';
@@ -165,19 +168,31 @@ function App() {
   const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const isClientPortal = window.location.pathname.startsWith('/portal');
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
       if (user) {
         setUser(user);
         try {
-          const idTokenResult = await getIdTokenResult(user, true);
-          const role = idTokenResult.claims.role || 'member';
-          setUserRole(role);
+            const userDocRef = doc(db, "users", user.uid);
+            const userDoc = await getDoc(userDocRef);
+
+            if (userDoc.exists()) {
+                const idTokenResult = await getIdTokenResult(user, true);
+                setUserRole(idTokenResult.claims.role || 'member');
+            } else {
+                const clientDocRef = doc(db, "clients", user.uid);
+                if (clientDoc.exists()) {
+                    setUserRole('client');
+                } else {
+                    setUserRole(null);
+                }
+            }
         } catch (error) {
-          console.error("Error getting user role:", error);
-          setUserRole('member');
-          toast.error("Could not verify user role.");
+            console.error("Error determining user role:", error);
+            setUserRole(null);
         }
       } else {
         setUser(null);
@@ -189,19 +204,24 @@ function App() {
   }, []);
 
   if (loading) {
-    return <LoadingScreen message="Verifying authentication..." />;
+    return <LoadingScreen message="Loading..." />;
   }
 
-  return (
-    <div className="bg-slate-100 min-h-screen font-sans">
-      {user ? <CaseManagementSystem user={user} userRole={userRole} /> : <AuthScreen />}
-      <ToastContainer position="bottom-right" autoClose={5000} hideProgressBar={false} />
-    </div>
-  );
+  if (isClientPortal) {
+      if (user && userRole === 'client') {
+          return <ClientDashboard user={user} />;
+      }
+      return <ClientLoginScreen />;
+  }
+
+  if (user && (userRole === 'admin' || userRole === 'member')) {
+      return <CaseManagementSystem user={user} userRole={userRole} />;
+  }
+  
+  return <AuthScreen />;
 }
 
 // --- Reusable Components ---
-
 const LoadingScreen = ({ message = "Loading..." }) => (
   <div className="flex flex-col justify-center items-center min-h-screen bg-slate-100 text-slate-700">
     <Loader2 className="w-12 h-12 animate-spin mb-4 text-blue-600" />
@@ -209,6 +229,81 @@ const LoadingScreen = ({ message = "Loading..." }) => (
   </div>
 );
 
+const InputField = ({ name, label, value, onChange, type = 'text', required = false, id, disabled = false }) => (
+    <div>
+        <label htmlFor={id || name} className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
+        <input type={type} id={id || name} name={name} value={value} onChange={onChange} required={required} disabled={disabled} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100" />
+    </div>
+);
+
+const InfoItem = ({ icon: Icon, label, value }) => (
+    <div className="flex items-start">
+        <Icon className="w-4 h-4 text-slate-400 mt-0.5 mr-3 flex-shrink-0" />
+        <div>
+            <p className="text-xs text-slate-500">{label}</p>
+            <div className="font-medium text-slate-800">{value || 'N/A'}</div>
+        </div>
+    </div>
+);
+
+const CaseStatusBadge = ({ status }) => {
+    const statusStyles = {
+        'Active': 'bg-green-100 text-green-800',
+        'Pending': 'bg-yellow-100 text-yellow-800',
+        'Appeal': 'bg-blue-100 text-blue-800',
+        'Decided': 'bg-purple-100 text-purple-800',
+        'Closed': 'bg-slate-100 text-slate-800',
+        'default': 'bg-slate-100 text-slate-800'
+    };
+    return (<span className={`px-2 py-1 text-xs font-medium rounded-full ${statusStyles[status] || statusStyles['default']}`}>{status}</span>);
+};
+
+const CheckboxField = ({ name, label, checked, onChange, disabled = false }) => (
+    <div className="flex items-center">
+        <input id={name} name={name} type="checkbox" checked={checked} onChange={onChange} disabled={disabled} className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:bg-slate-200" />
+        <label htmlFor={name} className="ml-2 block text-sm text-slate-900">{label}</label>
+    </div>
+);
+const AccessDeniedScreen = ({ message, redirectTo }) => {
+    useEffect(() => {
+        if (redirectTo) {
+            setTimeout(() => {
+                window.location.href = redirectTo;
+            }, 3000);
+        }
+    }, [redirectTo]);
+
+    return (
+        <div className="flex flex-col justify-center items-center min-h-screen bg-slate-100 text-slate-700 p-4 text-center">
+            <FileWarning className="w-16 h-16 text-red-500 mb-4" />
+            <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
+            <p className="text-lg">{message}</p>
+            {!redirectTo && (
+                <button onClick={() => signOut(auth)} className="mt-6 bg-blue-600 text-white px-6 py-2 rounded-lg">
+                    Log Out
+                </button>
+            )}
+        </div>
+    );
+};
+const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm }) => {
+    if (!isOpen) return null;
+    return (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-60 z-40 flex justify-center items-center p-4" onClick={onClose}>
+            <motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: -20 }} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}>
+                <div className="mx-auto bg-red-100 rounded-full h-12 w-12 flex items-center justify-center mb-4">
+                    <FileWarning className="h-6 w-6 text-red-600" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">Are you sure?</h3>
+                <p className="text-slate-600 mb-6 text-sm">Do you really want to delete this case file? This action cannot be undone.</p>
+                <div className="flex justify-center gap-4">
+                    <button onClick={onClose} className="bg-slate-200 text-slate-800 px-6 py-2 rounded-lg hover:bg-slate-300 font-semibold">Cancel</button>
+                    <button onClick={onConfirm} className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 font-semibold">Delete</button>
+                </div>
+            </motion.div>
+        </motion.div>
+    );
+}
 function AuthScreen() {
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
@@ -223,10 +318,10 @@ function AuthScreen() {
         try {
             if (isLogin) {
                 await signInWithEmailAndPassword(auth, email, password);
-                toast.success("Logged in successfully!");
             } else {
-                await createUserWithEmailAndPassword(auth, email, password);
-                toast.success("Account created successfully! You are now logged in.");
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                await sendEmailVerification(userCredential.user);
+                toast.success("Account created! A verification link has been sent to your email.");
             }
         } catch (err) {
             const errorMessage = err.message.replace('Firebase: ', '');
@@ -250,7 +345,7 @@ function AuthScreen() {
                     </div>
                     {error && <p className="text-red-500 text-sm text-center mb-4 bg-red-50 p-3 rounded-lg">{error}</p>}
                     <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors flex justify-center items-center text-base disabled:bg-blue-400">
-                        {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : (isLogin ? 'Login' : 'Sign Up & Login')}
+                        {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : (isLogin ? 'Login' : 'Sign Up')}
                     </button>
                 </form>
                 <p className="text-center text-sm text-slate-500 mt-6">
@@ -263,14 +358,250 @@ function AuthScreen() {
         </div>
     );
 }
+// --- Authentication Components ---
 
-// ----------------------------------------------------------------------------------
-// --- CaseManagementSystem Component (Updated) ---
-// Is poore function ko apni App.jsx file ke CaseManagementSystem function se replace karein.
-// ----------------------------------------------------------------------------------
+function VerifyEmailScreen({ user }) {
+    const [isSending, setIsSending] = useState(false);
+
+    const handleResendEmail = async () => {
+        setIsSending(true);
+        try {
+            await sendEmailVerification(user);
+            toast.success("Verification email sent again. Please check your inbox (and spam folder).");
+        } catch (error) {
+            toast.error(error.message);
+        }
+        setIsSending(false);
+    };
+const handleLogout = async () => {
+        await signOut(auth);
+    };
+    return (
+        <div className="flex justify-center items-center min-h-screen p-4 bg-slate-100">
+            <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl text-center">
+                <MailCheck className="w-16 h-16 mx-auto text-green-500 mb-4" />
+                <h2 className="text-2xl font-bold text-slate-800 mb-2">Verify Your Email</h2>
+                <p className="text-slate-600 mb-6">
+                    A verification link has been sent to **{user.email}**. Please click the link to activate your account.
+                </p>
+                <div className="space-y-4">
+                    <button onClick={handleResendEmail} disabled={isSending} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors flex justify-center items-center text-base disabled:bg-blue-400">
+                        {isSending ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Resend Verification Email'}
+                    </button>
+                    <button onClick={() => signOut(auth)} className="w-full bg-slate-200 text-slate-700 font-bold py-3 rounded-lg hover:bg-slate-300 transition-colors">
+                        Log Out
+                    </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-6">
+                    After verifying, please refresh this page or log in again.
+                </p>
+            </div>
+        </div>
+    );
+}
+
+// --- Client Portal Components ---
+function ClientLoginScreen() {
+    const [phone, setPhone] = useState('');
+    const [password, setPassword] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+        try {
+            // Construct the dummy email from the phone number
+            const email = `${phone}@casefile-portal.local`;
+            await signInWithEmailAndPassword(auth, email, password);
+            // onAuthStateChanged will handle the redirect
+        } catch (err) {
+            let friendlyError = "Invalid phone number or password.";
+            if (err.code === 'auth/invalid-credential') {
+                 friendlyError = "Invalid phone number or password.";
+            }
+            setError(friendlyError);
+            toast.error(friendlyError);
+        }
+        setLoading(false);
+    };
+    
+    return (
+        <div className="flex justify-center items-center min-h-screen p-4 bg-slate-100">
+            <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl">
+                <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">Client Portal Login</h2>
+                <p className="text-center text-slate-500 mb-8">Malik Awan Law Associates</p>
+                <form onSubmit={handleLogin} className="space-y-4">
+                    <InputField label="Mobile Number (e.g., 923001234567)" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required />
+                    <InputField label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                    {error && <p className="text-red-500 text-sm text-center my-4">{error}</p>}
+                    <button type="submit" disabled={loading} className="mt-2 w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors flex justify-center items-center">
+                        {loading ? <Loader2 className="animate-spin" /> : 'Login'}
+                    </button>
+                </form>
+            </div>
+        </div>
+    );
+}
+// --- Client Portal Components ---
+function ClientPortal({ user }) {
+    const [cases, setCases] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedCase, setSelectedCase] = useState(null);
+
+    useEffect(() => {
+        const q = query(collectionGroup(db, 'cases'), where('clientId', '==', user.uid));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const casesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setCases(casesData);
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, [user.uid]);
+
+    if (loading) {
+        return <LoadingScreen message="Loading Client Portal..." />;
+    }
+    
+    if (selectedCase) {
+        return <ClientCaseDetail caseData={selectedCase} user={user} onBack={() => setSelectedCase(null)} />;
+    }
+
+    return (
+        <div className="bg-slate-50 min-h-screen">
+            <header className="bg-white shadow-sm">
+                <div className="container mx-auto px-6 py-4 flex justify-between items-center">
+                    <h1 className="text-xl font-bold text-slate-800">Your Case Dashboard</h1>
+                    <button onClick={() => signOut(auth)} className="flex items-center gap-2 text-sm text-red-600 hover:text-red-800">
+                        <LogOut className="w-4 h-4" /> Log Out
+                    </button>
+                </div>
+            </header>
+            <main className="container mx-auto p-6">
+                {cases.length > 0 ? (
+                    <div className="space-y-4">
+                        {cases.map(caseItem => (
+                            <div key={caseItem.id} onClick={() => setSelectedCase(caseItem)} className="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg transition-shadow">
+                                <h2 className="text-xl font-bold text-slate-800">{caseItem.caseTitle}</h2>
+                                <p className="text-sm text-slate-500 mb-4">Case #: {caseItem.caseNumber}</p>
+                                <CaseStatusBadge status={caseItem.caseStatus} />
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p>You do not have any cases assigned to you yet.</p>
+                )}
+            </main>
+        </div>
+    );
+}
+
+
+function ClientCaseDetail({ caseData, user, onBack }) {
+    const [comments, setComments] = useState([]);
+    const [newComment, setNewComment] = useState("");
+    const [file, setFile] = useState(null);
+    const [uploadProgress, setUploadProgress] = useState(0);
+
+    const commentsRef = collection(db, `artifacts/default-app-id/users/${caseData.ownerId}/cases/${caseData.id}/comments`);
+
+    useEffect(() => {
+        const q = query(commentsRef, orderBy("createdAt", "asc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setComments(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+        });
+        return unsubscribe;
+    }, [commentsRef]);
+
+    const handleAddComment = async (e) => {
+        e.preventDefault();
+        if (newComment.trim() === "") return;
+        await addDoc(commentsRef, {
+            text: newComment,
+            createdAt: serverTimestamp(),
+            author: "Client",
+            authorId: user.uid,
+        });
+        setNewComment("");
+    };
+
+    const handleFileUpload = async () => {
+        if (!file) return;
+        const storagePath = `client_uploads/${user.uid}/${caseData.id}/${Date.now()}_${file.name}`;
+        const storageRef = ref(storage, storagePath);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+
+        uploadTask.on('state_changed', 
+            (snapshot) => setUploadProgress((snapshot.bytesTransferred / snapshot.totalBytes) * 100),
+            (error) => toast.error("Upload failed: " + error.message),
+            async () => {
+                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                const caseDocRef = doc(db, `artifacts/default-app-id/users/${caseData.ownerId}/cases/${caseData.id}`);
+                await updateDoc(caseDocRef, {
+                    attachments: arrayUnion({ name: file.name, url: downloadURL, storagePath, uploadedBy: 'client' })
+                });
+                toast.success("File uploaded successfully!");
+                setFile(null);
+                setUploadProgress(0);
+            }
+        );
+    };
+
+    return (
+        <div className="bg-slate-50 min-h-screen">
+            <header className="bg-white shadow-sm p-4">
+                <button onClick={onBack} className="text-blue-600 hover:underline">{"< Back to Dashboard"}</button>
+            </header>
+            <main className="container mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 space-y-6">
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                        <h3 className="text-lg font-bold mb-4">Case Discussion</h3>
+                        <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                            {comments.map(comment => (
+                                <div key={comment.id} className={`flex ${comment.authorId === user.uid ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`p-3 rounded-lg max-w-md ${comment.authorId === user.uid ? 'bg-blue-500 text-white' : 'bg-slate-200'}`}>
+                                        <p className="text-sm">{comment.text}</p>
+                                        <p className={`text-xs mt-1 opacity-70 ${comment.authorId === user.uid ? 'text-right' : 'text-left'}`}>
+                                            {comment.createdAt?.toDate().toLocaleTimeString()}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <form onSubmit={handleAddComment} className="mt-4 flex gap-2">
+                            <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Type a message..." className="flex-grow w-full px-3 py-2 border border-slate-300 rounded-full" />
+                            <button type="submit" className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700"><Send className="w-5 h-5" /></button>
+                        </form>
+                    </div>
+                </div>
+                <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                        <h3 className="text-lg font-bold mb-4">Upload Documents</h3>
+                        <input type="file" onChange={e => setFile(e.target.files[0])} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                        {uploadProgress > 0 && <progress value={uploadProgress} max="100" className="w-full mt-2" />}
+                        <button onClick={handleFileUpload} disabled={!file} className="w-full mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg disabled:bg-slate-300">Upload</button>
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
+}
+
+// --- UPDATED: CaseManagementSystem Component with Logout Button ---
 function CaseManagementSystem({ user, userRole }) {
-  const [view, setView] = useState('dashboard');
+  const [view, setView] = useState('clients'); // Default to clients view for admin
   const [searchTerm, setSearchTerm] = useState('');
+
+  // --- ADDED: Logout handler ---
+  const handleLogout = async () => {
+    try {
+        await signOut(auth);
+        toast.success("You have been logged out.");
+    } catch (error) {
+        toast.error("Failed to log out.");
+    }
+  };
 
   return (
     <>
@@ -279,6 +610,7 @@ function CaseManagementSystem({ user, userRole }) {
           <div className="flex justify-between items-center py-4">
             <h1 className="text-2xl font-bold text-slate-800">CaseFile Pro</h1>
             <nav className="flex items-center space-x-2">
+               {/* Dashboard, Cases, etc. buttons yahan rahenge */}
                <button onClick={() => setView('dashboard')} className={`px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 ${view === 'dashboard' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}>
                    <Activity className="w-5 h-5" />Dashboard
                </button>
@@ -292,24 +624,182 @@ function CaseManagementSystem({ user, userRole }) {
                    <FileText className="w-5 h-5" />Invoices
                </button>
               {userRole === 'admin' && (
-                 <button onClick={() => setView('admin')} className={`px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 ${view === 'admin' ? 'bg-purple-100 text-purple-700' : 'text-slate-600 hover:bg-slate-100'}`}>
-                    <Users className="w-5 h-5" />Admin
-                 </button>
+                 <>
+                    <button onClick={() => setView('clients')} className={`px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 ${view === 'clients' ? 'bg-yellow-100 text-yellow-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+                        <UserPlus className="w-5 h-5" />Clients
+                    </button>
+                    <button onClick={() => setView('admin')} className={`px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 ${view === 'admin' ? 'bg-purple-100 text-purple-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+                        <ShieldCheck className="w-5 h-5" />Lawyers
+                    </button>
+                 </>
               )}
+               <button onClick={handleLogout} className="px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 text-red-600 hover:bg-red-100">
+                   <LogOut className="w-5 h-5" />Log Out
+               </button>
             </nav>
           </div>
         </div>
       </header>
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
         {view === 'dashboard' && <DashboardView user={user} setView={setView} setSearchTerm={setSearchTerm} />}
-        {/* YAHAN PAR BUG THEEK KIYA GAYA HAI: userRole ab CasesView ko pass ho raha hai */}
         {view === 'cases' && <CasesView user={user} userRole={userRole} searchTerm={searchTerm} setSearchTerm={setSearchTerm} />}
         {view === 'calendar' && <CalendarView user={user} />}
         {view === 'invoices' && <InvoicesView user={user} />}
         {view === 'admin' && userRole === 'admin' && <AdminPanel />}
+        {view === 'clients' && userRole === 'admin' && <AdminClientManagement />}
       </main>
     </>
   );
+}
+function AdminClientManagement() {
+    const [clients, setClients] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [newClientName, setNewClientName] = useState('');
+    const [newClientPhone, setNewClientPhone] = useState('');
+    const [newClientPassword, setNewClientPassword] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        const unsub = onSnapshot(collection(db, "clients"), (snapshot) => {
+            setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoading(false);
+        });
+        return () => unsub();
+    }, []);
+
+    const handleAddClient = async (e) => {
+        e.preventDefault();
+        if (!newClientName || !newClientPhone || !newClientPassword) {
+            toast.error("All fields are required.");
+            return;
+        }
+        setIsSubmitting(true);
+        const addClient = httpsCallable(functions, 'createClientUser');
+        try {
+            const result = await addClient({ name: newClientName, phone: newClientPhone, password: newClientPassword });
+            toast.success(result.data.result);
+            setNewClientName('');
+            setNewClientPhone('');
+            setNewClientPassword('');
+            setIsModalOpen(false);
+        } catch (error) {
+            console.error("Error creating client:", error);
+            toast.error(error.message);
+        }
+        setIsSubmitting(false);
+    };
+
+    if (loading) return <LoadingScreen message="Loading clients..." />;
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-slate-700">Client Management</h2>
+                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                    <UserPlus className="w-5 h-5" /> Add New Client
+                </button>
+            </div>
+            <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200">
+                    <thead className="bg-slate-50">
+                        <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Name</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Phone Number</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-slate-200">
+                        {clients.map(client => (
+                            <tr key={client.id}>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{client.name}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{client.phone}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+             <AnimatePresence>
+                {isModalOpen && (
+                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-50 z-40 flex justify-center items-center p-4">
+                        <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+                            <h2 className="text-xl font-bold text-slate-800 mb-4">Add New Client</h2>
+                            <form onSubmit={handleAddClient} className="space-y-4">
+                                <InputField label="Client Full Name" value={newClientName} onChange={e => setNewClientName(e.target.value)} required />
+                                <InputField label="Client Mobile Number" type="tel" value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} required />
+                                <InputField label="Set Password" type="text" value={newClientPassword} onChange={e => setNewClientPassword(e.target.value)} required />
+                                <div className="flex justify-end gap-3 pt-4">
+                                    <button type="button" onClick={() => setIsModalOpen(false)} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-200">Cancel</button>
+                                    <button type="submit" disabled={isSubmitting} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center w-32">
+                                        {isSubmitting ? <Loader2 className="animate-spin"/> : 'Create Client'}
+                                    </button>
+                                </div>
+                            </form>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+function QRCodeModal({ url, clientName, onClose }) {
+    const qrCodeRef = React.useRef(null);
+
+    useEffect(() => {
+        const scriptId = 'qrcode-library-script';
+        const existingScript = document.getElementById(scriptId);
+
+        const generateQr = () => {
+            if (qrCodeRef.current && typeof QRCode !== "undefined") {
+                qrCodeRef.current.innerHTML = "";
+                new QRCode(qrCodeRef.current, {
+                    text: url,
+                    width: 256,
+                    height: 256,
+                    colorDark : "#000000",
+                    colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.H
+                });
+            }
+        };
+
+        if (!existingScript) {
+            const script = document.createElement('script');
+            script.id = scriptId;
+            script.src = "https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js";
+            script.async = true;
+            script.onload = generateQr;
+            document.body.appendChild(script);
+        } else {
+            generateQr();
+        }
+    }, [url]);
+
+    const handleCopyLink = () => {
+        navigator.clipboard.writeText(url)
+            .then(() => toast.success("Link copied to clipboard!"))
+            .catch(() => toast.error("Could not copy link."));
+    };
+
+    return (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-60 z-40 flex justify-center items-center p-4" onClick={onClose}>
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-slate-800 mb-1">Client Login QR Code</h3>
+                <p className="text-slate-600 mb-4 text-sm">For: **{clientName}**</p>
+                <div ref={qrCodeRef} className="flex justify-center items-center p-4 border rounded-lg mb-4 bg-white">
+                    <Loader2 className="w-8 h-8 animate-spin text-slate-300" />
+                </div>
+                <p className="text-xs text-slate-500 mb-4">This QR code is valid for 5 minutes.</p>
+                <div className="flex items-center gap-2">
+                    <input type="text" readOnly value={url} className="w-full bg-slate-100 px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+                    <button onClick={handleCopyLink} className="p-2 bg-slate-200 rounded-lg hover:bg-slate-300" title="Copy Link">
+                        <Copy className="w-5 h-5 text-slate-700" />
+                    </button>
+                </div>
+                <button onClick={onClose} className="mt-6 w-full bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold">Done</button>
+            </motion.div>
+        </motion.div>
+    );
 }
 
 // --- Invoices View Component ---
@@ -1586,36 +2076,14 @@ const StatCard = ({ iconName, title, value, color }) => {
     );
 };
 
-// --- The rest of the components remain unchanged ---
-const InfoItem = ({ icon: Icon, label, value }) => (
-    <div className="flex items-start">
-        <Icon className="w-4 h-4 text-slate-400 mt-0.5 mr-3 flex-shrink-0" />
-        <div>
-            <p className="text-xs text-slate-500">{label}</p>
-            <p className="font-medium text-slate-800">{value || 'N/A'}</p>
-        </div>
-    </div>
-);
-
-const CaseStatusBadge = ({ status }) => {
-    const statusStyles = {
-        'Active': 'bg-green-100 text-green-800',
-        'Pending': 'bg-yellow-100 text-yellow-800',
-        'Appeal': 'bg-blue-100 text-blue-800',
-        'Decided': 'bg-purple-100 text-purple-800',
-        'Closed': 'bg-slate-100 text-slate-800',
-        'default': 'bg-slate-100 text-slate-800'
-    };
-    return (<span className={`px-2 py-1 text-xs font-medium rounded-full ${statusStyles[status] || statusStyles['default']}`}>{status}</span>);
-};
-
 // ----------------------------------------------------------------------------------
 // --- CaseFormModal Component (Updated) ---
 // Is poore function ko apni App.jsx file ke CaseFormModal function se replace karein.
 // ----------------------------------------------------------------------------------
 function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }) {
-    const initialFormState = { clientName: '', clientAddress: '', clientContact: '', clientEmail: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '', hourlyRate: 0, expenses: [], assignedTo: [], allowAssignedToEdit: false };
+    const initialFormState = { clientName: '', clientId: '', clientAddress: '', clientContact: '', clientEmail: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '', hourlyRate: 0, expenses: [], assignedTo: [], allowAssignedToEdit: false };
     const [formData, setFormData] = useState(initialFormState);
+    const [clients, setClients] = useState([]);
     const [newDate, setNewDate] = useState('');
     const [newTag, setNewTag] = useState('');
     const [newExpense, setNewExpense] = useState({ description: '', amount: '' });
@@ -1625,7 +2093,14 @@ function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }
 
     // DEBUGGING: Yeh line aapko console mein user ka role batayegi.
     console.log("CaseFormModal loaded. Current user role is:", userRole);
-
+useEffect(() => {
+        if (userRole === 'admin') {
+            const unsub = onSnapshot(collection(db, "clients"), (snapshot) => {
+                setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            });
+            return () => unsub();
+        }
+    }, [userRole]);
     useEffect(() => {
         if (caseData) {
             // Ensure assignedTo is always an array of strings (UIDs)
@@ -1674,11 +2149,35 @@ function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }
                     <button onClick={onClose} className="p-1 rounded-full text-slate-500 hover:bg-slate-200"><X className="w-5 h-5" /></button>
                 </div>
                 <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4">
-                    {/* Client and Case Info sections remain the same */}
                     <h3 className="text-lg font-semibold text-slate-700 border-b pb-2">Client Information</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {userRole === 'admin' ? (
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 mb-1">Assign to Client</label>
+                            <select 
+                                name="clientId" 
+                                value={formData.clientId} 
+                                onChange={(e) => {
+                                    const selectedClient = clients.find(c => c.id === e.target.value);
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        clientId: selectedClient ? selectedClient.id : '',
+                                        clientName: selectedClient ? selectedClient.name : '',
+                                        clientEmail: selectedClient ? selectedClient.email : ''
+                                    }));
+                                }}
+                                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                            >
+                                <option value="">Select an existing client</option>
+                                {clients.map(client => (
+                                    <option key={client.id} value={client.id}>{client.name} ({client.email})</option>
+                                ))}
+                            </select>
+                        </div>
+                    ) : (
                         <InputField name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} required />
-                        <InputField name="clientEmail" label="Client Email" type="email" value={formData.clientEmail} onChange={handleChange} />
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <InputField name="clientEmail" label="Client Email" type="email" value={formData.clientEmail} onChange={handleChange} disabled={userRole === 'admin' && formData.clientId} />
                         <InputField name="clientContact" label="Client Contact Number" value={formData.clientContact} onChange={handleChange} />
                     </div>
                     <TextAreaField name="clientAddress" label="Client Address" value={formData.clientAddress} onChange={handleChange} />
@@ -1816,46 +2315,6 @@ function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }
         </motion.div>
     );
 }
-
-function ConfirmDeleteModal({ isOpen, onClose, onConfirm }) {
-    if (!isOpen) return null;
-    return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-60 z-40 flex justify-center items-center p-4" onClick={onClose}>
-            <motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: -20 }} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}>
-                <div className="mx-auto bg-red-100 rounded-full h-12 w-12 flex items-center justify-center mb-4">
-                    <FileWarning className="h-6 w-6 text-red-600" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">Are you sure?</h3>
-                <p className="text-slate-600 mb-6 text-sm">Do you really want to delete this case file? This action cannot be undone.</p>
-                <div className="flex justify-center gap-4">
-                    <button onClick={onClose} className="bg-slate-200 text-slate-800 px-6 py-2 rounded-lg hover:bg-slate-300 font-semibold">Cancel</button>
-                    <button onClick={onConfirm} className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 font-semibold">Delete</button>
-                </div>
-            </motion.div>
-        </motion.div>
-    );
-}
-
-const InputField = ({ name, label, value, onChange, type = 'text', required = false, id }) => (
-    <div>
-        <label htmlFor={id || name} className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
-        <input type={type} id={id || name} name={name} value={value} onChange={onChange} required={required} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-    </div>
-);
-
-const TextAreaField = ({ name, label, value, onChange }) => (
-    <div>
-        <label htmlFor={name} className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
-        <textarea id={name} name={name} value={value} onChange={onChange} rows="3" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-    </div>
-);
-
-const CheckboxField = ({ name, label, checked, onChange }) => (
-    <div className="flex items-center">
-        <input id={name} name={name} type="checkbox" checked={checked} onChange={onChange} className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" />
-        <label htmlFor={name} className="ml-2 block text-sm text-slate-900">{label}</label>
-    </div>
-);
 
 // Is poore function ko App.jsx mein mojood Tasks function se replace karein
 function Tasks({ caseId, caseTitle, caseOwnerId, loggedInUserId, appId }) {
