@@ -590,7 +590,7 @@ function ClientCaseDetail({ caseData, user, onBack }) {
 
 // --- UPDATED: CaseManagementSystem Component with Logout Button ---
 function CaseManagementSystem({ user, userRole }) {
-  const [view, setView] = useState('clients'); // Default to clients view for admin
+  const [view, setView] = useState('dashboard'); // Default to clients view for admin
   const [searchTerm, setSearchTerm] = useState('');
 
   // --- ADDED: Logout handler ---
