@@ -628,22 +628,31 @@ function ClientCaseDetail({ caseData, user, onBack }) {
         const q = query(commentsRef, orderBy("createdAt", "asc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setComments(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+        }, (error) => {
+            console.error("Error fetching comments:", error.message);
         });
         return unsubscribe;
     }, [commentsRef]);
 
+    // *** FIX 1: handleAddComment ko theek kiya gaya hai ***
     const handleAddComment = async (e) => {
         e.preventDefault();
         if (newComment.trim() === "") return;
-        await addDoc(commentsRef, {
-            text: newComment,
-            createdAt: serverTimestamp(),
-            author: "Client",
-            authorId: user.uid,
-        });
-        setNewComment("");
+        try {
+            await addDoc(commentsRef, {
+                text: newComment,
+                createdAt: serverTimestamp(), // addDoc ke sath serverTimestamp theek kaam karta hai
+                author: "Client",
+                authorId: user.uid,
+            });
+            setNewComment("");
+        } catch (error) {
+            console.error("Error adding comment:", error.message);
+            toast.error("Could not send message.");
+        }
     };
 
+    // *** FIX 2: handleFileUpload ko theek kiya gaya hai ***
     const handleFileUpload = async () => {
         if (!file) return;
         setUploading(true);
@@ -660,15 +669,15 @@ function ClientCaseDetail({ caseData, user, onBack }) {
             async () => {
                 const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                 const caseDocRef = doc(db, `artifacts/default-app-id/users/${caseData.ownerId}/cases/${caseData.id}`);
-                // *** YAHAN TABDEELI KI GAYI HAI ***
-                // serverTimestamp() ko Timestamp.now() se badal diya gaya hai.
+                
                 await updateDoc(caseDocRef, {
                     attachments: arrayUnion({ 
                         name: file.name, 
                         url: downloadURL, 
                         storagePath, 
-                        uploadedBy: 'client', // Yeh batata hai ke client ne upload kiya
-                        uploadedAt: Timestamp.now() // <-- THEEK KIYA GAYA CODE
+                        uploadedBy: 'client',
+                        // arrayUnion ke sath serverTimestamp() kaam nahi karta, isliye Timestamp.now() istemal karen
+                        uploadedAt: Timestamp.now() 
                     })
                 });
                 toast.success("File uploaded successfully!");
@@ -678,7 +687,6 @@ function ClientCaseDetail({ caseData, user, onBack }) {
             }
         );
     };
-
     return (
         <div className="bg-slate-50 min-h-screen">
             <header className="bg-white shadow-sm sticky top-0 z-10">
