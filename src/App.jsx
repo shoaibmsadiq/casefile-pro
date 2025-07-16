@@ -161,12 +161,12 @@ const generateInvoice = (invoiceData, caseData) => {
   doc.text("Thank you for your business.", 14, footerY);
   doc.save(`Invoice-${invoiceData.invoiceNumber || 'N/A'}.pdf`);
 };
-
-// --- Main App Component ---
+// Main Function App 
 function App() {
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
 
   const isClientPortal = window.location.pathname.startsWith('/portal');
 
@@ -174,7 +174,10 @@ function App() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
       if (user) {
+        await user.reload();
         setUser(user);
+        setIsEmailVerified(user.emailVerified);
+        
         try {
             const userDocRef = doc(db, "users", user.uid);
             const userDoc = await getDoc(userDocRef);
@@ -194,9 +197,11 @@ function App() {
             console.error("Error determining user role:", error);
             setUserRole(null);
         }
+
       } else {
         setUser(null);
         setUserRole(null);
+        setIsEmailVerified(false);
       }
       setLoading(false);
     });
@@ -207,18 +212,27 @@ function App() {
     return <LoadingScreen message="Loading..." />;
   }
 
+  // --- UPDATED RENDER LOGIC ---
   if (isClientPortal) {
-      if (user && userRole === 'client') {
-          return <ClientDashboard user={user} />;
-      }
-      return <ClientLoginScreen />;
+      // Ab hum yeh faisla ClientPortal component par chhor denge ke
+      // login screen dikhani hai ya dashboard.
+      return <ClientPortal user={user} loading={loading} />;
   }
 
+  // Main portal (for lawyers/admins)
   if (user && (userRole === 'admin' || userRole === 'member')) {
-      return <CaseManagementSystem user={user} userRole={userRole} />;
+      if (isEmailVerified) {
+          return <CaseManagementSystem user={user} userRole={userRole} />;
+      } else {
+          return <VerifyEmailScreen user={user} />;
+      }
+  } else if (user && userRole === 'client') {
+      // Agar koi client ghalti se main portal par aa jaye to usay redirect karein
+      return <AccessDeniedScreen message="Access denied. Redirecting to Client Portal..." redirectTo="/portal" />;
+  } else {
+      // Agar koi user login nahi hai, to lawyer/admin login screen dikhayein
+      return <AuthScreen />;
   }
-  
-  return <AuthScreen />;
 }
 
 // --- Reusable Components ---
