@@ -249,6 +249,13 @@ const InputField = ({ name, label, value, onChange, type = 'text', required = fa
     </div>
 );
 
+const TextAreaField = ({ name, label, value, onChange }) => (
+    <div>
+        <label htmlFor={name} className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
+        <textarea id={name} name={name} value={value} onChange={onChange} rows="3" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+    </div>
+);
+
 const InfoItem = ({ icon: Icon, label, value }) => (
     <div className="flex items-start">
         <Icon className="w-4 h-4 text-slate-400 mt-0.5 mr-3 flex-shrink-0" />
@@ -2150,9 +2157,8 @@ const StatCard = ({ iconName, title, value, color }) => {
 // Is poore function ko apni App.jsx file ke CaseFormModal function se replace karein.
 // ----------------------------------------------------------------------------------
 function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }) {
-    const initialFormState = { clientName: '', clientId: '', clientAddress: '', clientContact: '', clientEmail: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '', hourlyRate: 0, expenses: [], assignedTo: [], allowAssignedToEdit: false };
+    const initialFormState = { clientName: '', clientAddress: '', clientContact: '', clientEmail: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '', hourlyRate: 0, expenses: [], assignedTo: [], allowAssignedToEdit: false };
     const [formData, setFormData] = useState(initialFormState);
-    const [clients, setClients] = useState([]);
     const [newDate, setNewDate] = useState('');
     const [newTag, setNewTag] = useState('');
     const [newExpense, setNewExpense] = useState({ description: '', amount: '' });
@@ -2162,14 +2168,7 @@ function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }
 
     // DEBUGGING: Yeh line aapko console mein user ka role batayegi.
     console.log("CaseFormModal loaded. Current user role is:", userRole);
-useEffect(() => {
-        if (userRole === 'admin') {
-            const unsub = onSnapshot(collection(db, "clients"), (snapshot) => {
-                setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            });
-            return () => unsub();
-        }
-    }, [userRole]);
+
     useEffect(() => {
         if (caseData) {
             // Ensure assignedTo is always an array of strings (UIDs)
@@ -2218,35 +2217,11 @@ useEffect(() => {
                     <button onClick={onClose} className="p-1 rounded-full text-slate-500 hover:bg-slate-200"><X className="w-5 h-5" /></button>
                 </div>
                 <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4">
+                    {/* Client and Case Info sections remain the same */}
                     <h3 className="text-lg font-semibold text-slate-700 border-b pb-2">Client Information</h3>
-                    {userRole === 'admin' ? (
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 mb-1">Assign to Client</label>
-                            <select 
-                                name="clientId" 
-                                value={formData.clientId || ''} 
-                                onChange={(e) => {
-                                    const selectedClient = clients.find(c => c.id === e.target.value);
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        clientId: selectedClient ? selectedClient.id : '',
-                                        clientName: selectedClient ? selectedClient.name : '',
-                                        clientEmail: selectedClient ? selectedClient.email : ''
-                                    }));
-                                }}
-                                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                            >
-                                <option value="">Select an existing client</option>
-                                {clients.map(client => (
-                                    <option key={client.id} value={client.id}>{client.name} ({client.email})</option>
-                                ))}
-                            </select>
-                        </div>
-                    ) : (
-                        <InputField name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} required />
-                    )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <InputField name="clientEmail" label="Client Email" type="email" value={formData.clientEmail} onChange={handleChange} disabled={userRole === 'admin' && !!formData.clientId} />
+                        <InputField name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} required />
+                        <InputField name="clientEmail" label="Client Email" type="email" value={formData.clientEmail} onChange={handleChange} />
                         <InputField name="clientContact" label="Client Contact Number" value={formData.clientContact} onChange={handleChange} />
                     </div>
                     <TextAreaField name="clientAddress" label="Client Address" value={formData.clientAddress} onChange={handleChange} />
