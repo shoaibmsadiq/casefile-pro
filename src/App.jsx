@@ -2224,7 +2224,7 @@ useEffect(() => {
                             <label className="block text-sm font-medium text-slate-600 mb-1">Assign to Client</label>
                             <select 
                                 name="clientId" 
-                                value={formData.clientId} 
+                                value={formData.clientId || ''} 
                                 onChange={(e) => {
                                     const selectedClient = clients.find(c => c.id === e.target.value);
                                     setFormData(prev => ({
@@ -2246,7 +2246,7 @@ useEffect(() => {
                         <InputField name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} required />
                     )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <InputField name="clientEmail" label="Client Email" type="email" value={formData.clientEmail} onChange={handleChange} disabled={userRole === 'admin' && formData.clientId} />
+                        <InputField name="clientEmail" label="Client Email" type="email" value={formData.clientEmail} onChange={handleChange} disabled={userRole === 'admin' && !!formData.clientId} />
                         <InputField name="clientContact" label="Client Contact Number" value={formData.clientContact} onChange={handleChange} />
                     </div>
                     <TextAreaField name="clientAddress" label="Client Address" value={formData.clientAddress} onChange={handleChange} />
