@@ -32,43 +32,77 @@ service cloud.firestore {
       allow list, read, write: if isSignedIn() && requestingUserUid() == userId;
     }
 
+
     // --- Main Rules for Artifacts (Cases, Invoices, etc.) ---
     match /artifacts/{appId}/users/{pathOwnerId}/cases/{caseId} {
 
-      function isCaseOwner() { return requestingUserUid() == pathOwnerId; }
-      function isClientOfCase() { return isSignedIn() && resource.data.clientId == requestingUserUid(); }
+      // --- Helper Functions for this context ---
+      function isCaseOwner() { 
+        return request.auth.uid == pathOwnerId; 
+      }
+      function isClientOfCase() { 
+        // Checks the existing document to see if the requester is the client
+        return isSignedIn() && resource.data.clientId == request.auth.uid; 
+      }
       function isAssignedToCase() {
         return isSignedIn() && 
                'assignedTo' in resource.data && 
                resource.data.assignedTo is list && 
-               resource.data.assignedTo.hasAny([requestingUserUid()]);
+               request.auth.uid in resource.data.assignedTo;
+      }
+      
+      // === YEH FUNCTION BADLA GAYA HAI ===
+      // This is a new, more reliable helper function for secure client uploads.
+      function clientIsUpdatingAttachments() {
+        // This function checks that:
+        // 1. The user is the designated client for this case.
+        // 2. The ONLY field being changed in the update is 'attachments'.
+        
+        // Find out which fields are being changed.
+        let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+        
+        // Allow the update only if the user is the client AND only the 'attachments' key is being changed.
+        return isClientOfCase() && changedKeys.size() == 1 && 'attachments' in changedKeys;
       }
 
-      // Rules for the CASE document
+
+      // --- Rules for the CASE document ---
       allow list, read: if isCaseOwner() || isAssignedToCase() || isClientOfCase() || isAdmin();
       allow create, delete: if isCaseOwner() || isAdmin();
-      allow update: if isCaseOwner() || isAdmin() || (isAssignedToCase() && resource.data.allowAssignedToEdit == true);
+      
+      // The update rule now uses the more reliable helper function.
+      allow update: if isCaseOwner() || 
+                      isAdmin() || 
+                      (isAssignedToCase() && resource.data.allowAssignedToEdit == true) ||
+                      clientIsUpdatingAttachments();
 
-      // --- Rules for the 'comments' subcollection ---
-      // *** FINAL AND CORRECTED RULE ***
+
+      // Rules for 'comments' subcollection
       match /comments/{commentId} {
-        // A user can read/write a comment if their UID is in the comment's 'participants' array.
-        // This is the most reliable method and avoids complex get() calls.
-        allow read, write: if request.auth.uid in resource.data.participants || isAdmin();
+        function isParticipantOfParentCase() {
+          let caseData = get(/databases/$(database)/documents/artifacts/$(appId)/users/$(pathOwnerId)/cases/$(caseId)).data;
+          let isAssigned = 'assignedTo' in caseData && caseData.assignedTo is list && caseData.assignedTo.hasAny([requestingUserUid()]);
+          return caseData.clientId == requestingUserUid() || pathOwnerId == requestingUserUid() || isAssigned;
+        }
+        allow read, create: if isParticipantOfParentCase() || isAdmin();
+        allow update, delete: if requestingUserUid() == resource.data.authorId;
       }
 
-      // Rules for the 'tasks' subcollection
+      // Rules for 'tasks' subcollection
       match /tasks/{taskId} {
         allow read, write: if isCaseOwner() || isAssignedToCase() || isAdmin();
       }
     }
 
+    // FIX 2: Added a new rule block for invoices
     match /artifacts/{appId}/users/{pathOwnerId}/invoices/{invoiceId} {
+        // Only the owner of the artifacts or an admin can manage invoices.
         allow read, list, write: if requestingUserUid() == pathOwnerId || isAdmin();
     }
 
-    // --- Collection Group Rules ---
+     // --- Collection Group Rules ---
     match /{path=**}/cases/{caseId} {
+        // FIX: Added isAdmin() to allow admins to perform this query without errors.
         allow read: if isAdmin() || 
                      (isSignedIn() && 
                        (
@@ -81,7 +115,7 @@ service cloud.firestore {
                        )
                      );
     }
-    
+    // Rule for 'tasks' Collection Group query
     match /{path=**}/tasks/{taskId} {
         allow read: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.assignedTo);
     }

@@ -540,12 +540,60 @@ function ClientDashboard({ user }) {
         </div>
     );
 }
-// --- Client Portal Components ---
+// STEP 1: Yeh poora naya function apni App.jsx file mein kahin bhi add kar den,
+// maslan ClientPortal function se pehle.
+// -----------------------------------------------------------------------------
+function ClientCalendarView({ cases }) {
+    const localizer = momentLocalizer(moment);
+
+    const events = useMemo(() => {
+        // Aapke tamam cases se hearing dates nikal kar unhein calendar events mein tabdeel karen
+        return cases.flatMap(c => 
+            (c.hearingDates || []).map(date => ({
+                id: `${c.id}-${date}`,
+                title: `Hearing: ${c.caseTitle}`,
+                start: moment(date).startOf('day').toDate(),
+                end: moment(date).endOf('day').toDate(),
+                allDay: true,
+                resource: c, // Case ka reference, agar zaroorat pare
+            }))
+        );
+    }, [cases]);
+
+    // Calendar par events ka style kaisa hoga
+    const eventStyleGetter = (event) => ({
+        style: {
+            backgroundColor: '#3b82f6', // blue-500
+            borderRadius: '5px',
+            color: 'white',
+            border: '0px',
+            display: 'block',
+        }
+    });
+
+    return (
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-lg h-[80vh]">
+            <Calendar
+                localizer={localizer}
+                events={events}
+                startAccessor="start"
+                endAccessor="end"
+                style={{ height: '100%' }}
+                eventPropGetter={eventStyleGetter}
+            />
+        </div>
+    );
+}
+
+
+// STEP 2: Apni App.jsx file mein mojooda ClientPortal function ko
+// is poore naye code se replace kar den.
+// -----------------------------------------------------------------------------
 function ClientPortal({ user }) {
-    // Step 1: State add karen taake pata chale konsa case select hua hai
     const [cases, setCases] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [selectedCase, setSelectedCase] = useState(null); // <-- Yeh state zaroori hai
+    const [selectedCase, setSelectedCase] = useState(null);
+    const [view, setView] = useState('dashboard'); // 'dashboard' ya 'calendar'
 
     useEffect(() => {
         const q = query(collectionGroup(db, 'cases'), where('clientId', '==', user.uid));
@@ -566,49 +614,57 @@ function ClientPortal({ user }) {
         return <LoadingScreen message="Loading Client Portal..." />;
     }
     
-    // Step 2: Logic add karen ke agar case select ho to detail page dikhaye
     if (selectedCase) {
         return <ClientCaseDetail 
                     caseData={selectedCase} 
                     user={user} 
-                    onBack={() => setSelectedCase(null)} // <-- Wapas jane ka button
+                    onBack={() => setSelectedCase(null)} 
                 />;
     }
 
-    // Step 3: Har case item ko clickable banayen
     return (
         <div className="bg-slate-50 min-h-screen">
             <header className="bg-white shadow-sm">
                 <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-                    <h1 className="text-xl font-bold text-slate-800">Your Case Dashboard</h1>
-                    <button onClick={() => signOut(auth)} className="flex items-center gap-2 text-sm text-red-600 hover:text-red-800">
-                        <LogOut className="w-4 h-4" /> Log Out
-                    </button>
+                    <h1 className="text-xl font-bold text-slate-800">Client Portal</h1>
+                    <nav className="flex items-center space-x-2">
+                        <button onClick={() => setView('dashboard')} className={`px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 ${view === 'dashboard' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+                            <Briefcase className="w-5 h-5" /> My Cases
+                        </button>
+                        <button onClick={() => setView('calendar')} className={`px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 ${view === 'calendar' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+                            <CalendarIcon className="w-5 h-5" /> Calendar
+                        </button>
+                        <button onClick={() => signOut(auth)} className="px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 text-red-600 hover:bg-red-100">
+                            <LogOut className="w-5 h-5" /> Log Out
+                        </button>
+                    </nav>
                 </div>
             </header>
             <main className="container mx-auto p-6">
-                {cases.length > 0 ? (
-                    <div className="space-y-4">
-                        {cases.map(caseItem => (
-                            // *** YAHAN DEKHEIN: onClick handler aur cursor-pointer class add ki hai ***
-                            <div 
-                                key={caseItem.id} 
-                                onClick={() => setSelectedCase(caseItem)} 
-                                className="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg transition-shadow"
-                            >
-                                <h2 className="text-xl font-bold text-slate-800">{caseItem.caseTitle}</h2>
-                                <p className="text-sm text-slate-500 mb-4">Case #: {caseItem.caseNumber}</p>
-                                <CaseStatusBadge status={caseItem.caseStatus} />
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="text-center py-12">
-                        <Inbox className="mx-auto h-12 w-12 text-slate-400" />
-                        <h3 className="mt-2 text-sm font-medium text-slate-900">No Cases Found</h3>
-                        <p className="mt-1 text-sm text-slate-500">You do not have any cases assigned to you yet.</p>
-                    </div>
+                {view === 'dashboard' && (
+                    cases.length > 0 ? (
+                        <div className="space-y-4">
+                            {cases.map(caseItem => (
+                                <div 
+                                    key={caseItem.id} 
+                                    onClick={() => setSelectedCase(caseItem)} 
+                                    className="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg transition-shadow"
+                                >
+                                    <h2 className="text-xl font-bold text-slate-800">{caseItem.caseTitle}</h2>
+                                    <p className="text-sm text-slate-500 mb-4">Case #: {caseItem.caseNumber}</p>
+                                    <CaseStatusBadge status={caseItem.caseStatus} />
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="text-center py-12">
+                            <Inbox className="mx-auto h-12 w-12 text-slate-400" />
+                            <h3 className="mt-2 text-sm font-medium text-slate-900">No Cases Found</h3>
+                            <p className="mt-1 text-sm text-slate-500">You do not have any cases assigned to you yet.</p>
+                        </div>
+                    )
                 )}
+                {view === 'calendar' && <ClientCalendarView cases={cases} />}
             </main>
         </div>
     );
@@ -636,39 +692,37 @@ function ClientCaseDetail({ caseData, user, onBack }) {
 
     // *** YEH NAYA AUR THEEK KIYA GAYA FUNCTION HAI ***
     const handleAddComment = async (e) => {
-        e.preventDefault();
-        if (newComment.trim() === "") return;
+    e.preventDefault();
+    if (newComment.trim() === "") return;
 
-        // Create a list of all users who can see this comment
-        const participants = [
-            caseData.ownerId, // The lawyer who owns the case
-            caseData.clientId  // The client
-        ];
-        // Add any assigned lawyers to the list
-        if (caseData.assignedTo && caseData.assignedTo.length > 0) {
-            participants.push(...caseData.assignedTo);
-        }
-        // Remove duplicate UIDs to be safe
-        const uniqueParticipants = [...new Set(participants)];
+    // Create a list of all users who can see this comment
+    const participants = [
+        caseData.ownerId, // The lawyer who owns the case
+        caseData.clientId  // The client
+    ];
+    // Add any assigned lawyers to the list
+    if (caseData.assignedTo && caseData.assignedTo.length > 0) {
+        participants.push(...caseData.assignedTo);
+    }
+    const uniqueParticipants = [...new Set(participants)];
 
-        const newCommentData = {
-            text: newComment,
-            createdAt: serverTimestamp(),
-            author: "Client",
-            authorId: user.uid,
-            // Store the participants array on the comment document itself
-            participants: uniqueParticipants 
-        };
-
-        try {
-            await addDoc(commentsRef, newCommentData);
-            setNewComment("");
-        } catch (error) {
-            console.error("Error adding comment:", error.message);
-            toast.error("Could not send message. Please try again.");
-        }
+    const newCommentData = {
+        text: newComment,
+        createdAt: serverTimestamp(),
+        author: "Client",
+        authorId: user.uid,
+        // Store the participants array on the comment document itself
+        participants: uniqueParticipants 
     };
 
+    try {
+        await addDoc(commentsRef, newCommentData);
+        setNewComment("");
+    } catch (error) {
+        console.error("Error adding comment:", error.message);
+        toast.error("Could not send message. Please try again.");
+    }
+};
     // *** FIX 2: handleFileUpload ko theek kiya gaya hai ***
     const handleFileUpload = async () => {
         if (!file) return;
