@@ -174,6 +174,9 @@ function App() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
       if (user) {
+        // --- LOG 1 ---
+        console.log("Auth state badli. User ID:", user.uid, "| Email:", user.email);
+        
         await user.reload();
         setUser(user);
         setIsEmailVerified(user.emailVerified);
@@ -183,22 +186,38 @@ function App() {
             const userDoc = await getDoc(userDocRef);
 
             if (userDoc.exists()) {
-                const idTokenResult = await getIdTokenResult(user, true);
-                setUserRole(idTokenResult.claims.role || 'member');
+              // --- LOG 2 ---
+              console.log("Admin/member document mila. Role set ho raha hai.");
+              const idTokenResult = await getIdTokenResult(user, true);
+              setUserRole(idTokenResult.claims.role || 'member');
             } else {
-                const clientDocRef = doc(db, "clients", user.uid);
-                if (clientDoc.exists()) {
-                    setUserRole('client');
-                } else {
-                    setUserRole(null);
-                }
+              // --- LOG 3 ---
+              console.log("Admin/member document nahi mila, ab client check kar rahe hain.");
+              
+              // === IMPORTANT FIX ===
+              // Pehle 'clientDoc' ko get karna hai, phir 'exists()' check karna hai.
+              const clientDocRef = doc(db, "clients", user.uid);
+              const clientDoc = await getDoc(clientDocRef); // Yeh line pehle miss thi
+
+              if (clientDoc.exists()) {
+                  // --- LOG 4 ---
+                  console.log("Client document mil gaya! Role 'client' set ho raha hai.");
+                  setUserRole('client');
+              } else {
+                  // --- LOG 5 ---
+                  console.log("Client document bhi nahi mila! Role null set hoga.");
+                  setUserRole(null);
+              }
             }
         } catch (error) {
-            console.error("Error determining user role:", error);
+            // --- LOG 6 ---
+            console.error("User ka role check karte waqt error:", error);
             setUserRole(null);
         }
 
       } else {
+        // --- LOG 7 ---
+        console.log("User logout ho gaya hai.");
         setUser(null);
         setUserRole(null);
         setIsEmailVerified(false);
@@ -206,7 +225,7 @@ function App() {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+}, []);
 
   if (loading) {
     return <LoadingScreen message="Loading..." />;
@@ -433,17 +452,18 @@ function ClientLoginScreen() {
         setError('');
         try {
             const email = `${phone}@casefile-portal.local`;
+            console.log("Login karne ki koshish:", email); // YEH ADD KAREN
             await signInWithEmailAndPassword(auth, email, password);
+            console.log("Firebase Auth Kamyab!"); // YEH ADD KAREN
         } catch (err) {
-            let friendlyError = "Invalid phone number or password.";
-            if (err.code === 'auth/invalid-credential') {
-                 friendlyError = "Invalid phone number or password.";
-            }
-            setError(friendlyError);
-            toast.error(friendlyError);
-        }
-        setLoading(false);
-    };
+        console.error("Login mein error aya:", err.code, err.message); // YEH ADD KAREN
+        let friendlyError = "Invalid phone number or password.";
+        // ...
+        setError(friendlyError);
+        toast.error(friendlyError);
+    }
+    setLoading(false);
+};
     
     return (
         <div className="flex justify-center items-center min-h-screen p-4 bg-slate-100">
