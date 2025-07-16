@@ -234,7 +234,7 @@ function App() {
   // --- CORRECTED RENDER LOGIC ---
   if (isClientPortal) {
     if (user && userRole === 'client') {
-      return <ClientDashboard user={user} />;
+      return <ClientPortal user={user} />;
     } else {
       return <ClientLoginScreen />;
     }
@@ -542,23 +542,19 @@ function ClientDashboard({ user }) {
 }
 // --- Client Portal Components ---
 function ClientPortal({ user }) {
+    // Step 1: State add karen taake pata chale konsa case select hua hai
     const [cases, setCases] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [selectedCase, setSelectedCase] = useState(null);
+    const [selectedCase, setSelectedCase] = useState(null); // <-- Yeh state zaroori hai
 
     useEffect(() => {
         const q = query(collectionGroup(db, 'cases'), where('clientId', '==', user.uid));
+        
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const casesData = snapshot.docs.map(doc => {
-                // *** YEH ZAROORI HAI: Case ke owner ki ID path se nikalen ***
                 const pathSegments = doc.ref.path.split('/');
-                const ownerId = pathSegments[3]; // Path structure: artifacts/{appId}/users/{ownerId}/cases/{caseId}
-                
-                return { 
-                    id: doc.id, 
-                    ownerId: ownerId, // OwnerID ko case object mein save karen
-                    ...doc.data() 
-                };
+                const ownerId = pathSegments[3]; 
+                return { id: doc.id, ownerId: ownerId, ...doc.data() };
             });
             setCases(casesData);
             setLoading(false);
@@ -570,14 +566,16 @@ function ClientPortal({ user }) {
         return <LoadingScreen message="Loading Client Portal..." />;
     }
     
+    // Step 2: Logic add karen ke agar case select ho to detail page dikhaye
     if (selectedCase) {
         return <ClientCaseDetail 
                     caseData={selectedCase} 
                     user={user} 
-                    onBack={() => setSelectedCase(null)} 
+                    onBack={() => setSelectedCase(null)} // <-- Wapas jane ka button
                 />;
     }
 
+    // Step 3: Har case item ko clickable banayen
     return (
         <div className="bg-slate-50 min-h-screen">
             <header className="bg-white shadow-sm">
@@ -592,7 +590,12 @@ function ClientPortal({ user }) {
                 {cases.length > 0 ? (
                     <div className="space-y-4">
                         {cases.map(caseItem => (
-                            <div key={caseItem.id} onClick={() => setSelectedCase(caseItem)} className="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg transition-shadow">
+                            // *** YAHAN DEKHEIN: onClick handler aur cursor-pointer class add ki hai ***
+                            <div 
+                                key={caseItem.id} 
+                                onClick={() => setSelectedCase(caseItem)} 
+                                className="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg transition-shadow"
+                            >
                                 <h2 className="text-xl font-bold text-slate-800">{caseItem.caseTitle}</h2>
                                 <p className="text-sm text-slate-500 mb-4">Case #: {caseItem.caseNumber}</p>
                                 <CaseStatusBadge status={caseItem.caseStatus} />
@@ -600,7 +603,11 @@ function ClientPortal({ user }) {
                         ))}
                     </div>
                 ) : (
-                    <p>You do not have any cases assigned to you yet.</p>
+                    <div className="text-center py-12">
+                        <Inbox className="mx-auto h-12 w-12 text-slate-400" />
+                        <h3 className="mt-2 text-sm font-medium text-slate-900">No Cases Found</h3>
+                        <p className="mt-1 text-sm text-slate-500">You do not have any cases assigned to you yet.</p>
+                    </div>
                 )}
             </main>
         </div>
@@ -609,6 +616,7 @@ function ClientPortal({ user }) {
 
 
 function ClientCaseDetail({ caseData, user, onBack }) {
+    //console.log("ClientCaseDetail received this data:", JSON.stringify(caseData, null, 2));
     const [comments, setComments] = useState([]);
     const [newComment, setNewComment] = useState("");
     const [file, setFile] = useState(null);
@@ -623,23 +631,39 @@ function ClientCaseDetail({ caseData, user, onBack }) {
         const q = query(commentsRef, orderBy("createdAt", "asc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setComments(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+        }, (error) => {
+            // Yeh error log humein batayega agar parhne mein masla hai
+            console.error("Error fetching comments:", error);
         });
         return unsubscribe;
     }, [commentsRef]);
 
     // Naya comment add karne ka function
     const handleAddComment = async (e) => {
-        e.preventDefault();
-        if (newComment.trim() === "") return;
+    e.preventDefault();
+    if (newComment.trim() === "") return;
 
-        await addDoc(commentsRef, {
-            text: newComment,
-            createdAt: serverTimestamp(),
-            author: "Client", // Taake lawyer ko pata chale ke client ne message bheja hai
-            authorId: user.uid,
-        });
-        setNewComment("");
+    // Naye comment ke data mein case ki IDs shamil karen
+    const newCommentData = {
+        text: newComment,
+        createdAt: serverTimestamp(),
+        author: "Client",
+        authorId: user.uid,
+        // *** YEH ZAROORI HAI: Security rules ke liye IDs add karen ***
+        ownerId: caseData.ownerId,
+        clientId: caseData.clientId
     };
+
+    console.log("Adding new comment with data:", JSON.stringify(newCommentData, null, 2));
+
+    try {
+        await addDoc(commentsRef, newCommentData);
+        setNewComment("");
+    } catch (error) {
+        console.error("Error adding comment:", error);
+        toast.error("Could not send message. Please try again.");
+    }
+};
 
     // File upload karne ka function
     const handleFileUpload = async () => {
