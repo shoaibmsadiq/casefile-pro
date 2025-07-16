@@ -212,25 +212,26 @@ function App() {
     return <LoadingScreen message="Loading..." />;
   }
 
-  // --- CORRECTED RENDER LOGIC ---
+  // --- UPDATED RENDER LOGIC ---
   if (isClientPortal) {
-    if (user && userRole === 'client') {
-      return <ClientDashboard user={user} />;
-    } else {
-      return <ClientLoginScreen />;
-    }
-  } else {
-    if (user && (userRole === 'admin' || userRole === 'member')) {
+      // Ab hum yeh faisla ClientPortal component par chhor denge ke
+      // login screen dikhani hai ya dashboard.
+      return <ClientPortal user={user} loading={loading} />;
+  }
+
+  // Main portal (for lawyers/admins)
+  if (user && (userRole === 'admin' || userRole === 'member')) {
       if (isEmailVerified) {
-        return <CaseManagementSystem user={user} userRole={userRole} />;
+          return <CaseManagementSystem user={user} userRole={userRole} />;
       } else {
-        return <VerifyEmailScreen user={user} />;
+          return <VerifyEmailScreen user={user} />;
       }
-    } else if (user && userRole === 'client') {
-      return <AccessDeniedScreen message="Redirecting to Client Portal..." redirectTo="/portal" />;
-    } else {
+  } else if (user && userRole === 'client') {
+      // Agar koi client ghalti se main portal par aa jaye to usay redirect karein
+      return <AccessDeniedScreen message="Access denied. Redirecting to Client Portal..." redirectTo="/portal" />;
+  } else {
+      // Agar koi user login nahi hai, to lawyer/admin login screen dikhayein
       return <AuthScreen />;
-    }
   }
 }
 
