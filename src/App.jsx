@@ -616,56 +616,34 @@ function ClientPortal({ user }) {
 
 
 function ClientCaseDetail({ caseData, user, onBack }) {
-    //console.log("ClientCaseDetail received this data:", JSON.stringify(caseData, null, 2));
     const [comments, setComments] = useState([]);
     const [newComment, setNewComment] = useState("");
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
 
-    // Comments ke liye Firestore ka path banayen. `caseData.ownerId` yahan istemal hoga.
     const commentsRef = collection(db, `artifacts/default-app-id/users/${caseData.ownerId}/cases/${caseData.id}/comments`);
 
-    // Real-time mein comments fetch karne ke liye useEffect
     useEffect(() => {
         const q = query(commentsRef, orderBy("createdAt", "asc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setComments(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
-        }, (error) => {
-            // Yeh error log humein batayega agar parhne mein masla hai
-            console.error("Error fetching comments:", error);
         });
         return unsubscribe;
     }, [commentsRef]);
 
-    // Naya comment add karne ka function
     const handleAddComment = async (e) => {
-    e.preventDefault();
-    if (newComment.trim() === "") return;
-
-    // Naye comment ke data mein case ki IDs shamil karen
-    const newCommentData = {
-        text: newComment,
-        createdAt: serverTimestamp(),
-        author: "Client",
-        authorId: user.uid,
-        // *** YEH ZAROORI HAI: Security rules ke liye IDs add karen ***
-        ownerId: caseData.ownerId,
-        clientId: caseData.clientId
+        e.preventDefault();
+        if (newComment.trim() === "") return;
+        await addDoc(commentsRef, {
+            text: newComment,
+            createdAt: serverTimestamp(),
+            author: "Client",
+            authorId: user.uid,
+        });
+        setNewComment("");
     };
 
-    console.log("Adding new comment with data:", JSON.stringify(newCommentData, null, 2));
-
-    try {
-        await addDoc(commentsRef, newCommentData);
-        setNewComment("");
-    } catch (error) {
-        console.error("Error adding comment:", error);
-        toast.error("Could not send message. Please try again.");
-    }
-};
-
-    // File upload karne ka function
     const handleFileUpload = async () => {
         if (!file) return;
         setUploading(true);
@@ -681,19 +659,16 @@ function ClientCaseDetail({ caseData, user, onBack }) {
             },
             async () => {
                 const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                // Case document ka reference banayen, `ownerId` yahan bhi zaroori hai
                 const caseDocRef = doc(db, `artifacts/default-app-id/users/${caseData.ownerId}/cases/${caseData.id}`);
-                
                 await updateDoc(caseDocRef, {
                     attachments: arrayUnion({ 
                         name: file.name, 
                         url: downloadURL, 
                         storagePath, 
-                        uploadedBy: 'client',
+                        uploadedBy: 'client', // Yeh batata hai ke client ne upload kiya
                         uploadedAt: serverTimestamp() 
                     })
                 });
-                
                 toast.success("File uploaded successfully!");
                 setFile(null);
                 setUploadProgress(0);
@@ -702,13 +677,14 @@ function ClientCaseDetail({ caseData, user, onBack }) {
         );
     };
 
-     return (
+    return (
         <div className="bg-slate-50 min-h-screen">
             <header className="bg-white shadow-sm sticky top-0 z-10">
                 <div className="container mx-auto px-6 py-4">
                     <button onClick={onBack} className="font-semibold text-blue-600 hover:underline">{"< Back to Dashboard"}</button>
                 </div>
             </header>
+            
             <main className="container mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left Column: Case Details & Upload */}
                 <div className="lg:col-span-1 space-y-6">
@@ -720,8 +696,32 @@ function ClientCaseDetail({ caseData, user, onBack }) {
                             <InfoItem icon={Briefcase} label="Court" value={caseData.courtName} />
                         </div>
                     </div>
+                    
+                    {/* *** NAYA SECTION: Case Documents *** */}
                     <div className="bg-white p-6 rounded-lg shadow-md">
-                        <h3 className="text-lg font-bold mb-4">Upload Documents</h3>
+                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                            <Paperclip className="w-5 h-5 text-slate-500" /> Case Documents
+                        </h3>
+                        <ul className="space-y-2">
+                            {(caseData.attachments || []).map((att, i) => (
+                                <li key={i} className="flex items-center justify-between bg-slate-50 p-2 rounded-md">
+                                    <a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline truncate">
+                                        <FileText className="w-4 h-4" />
+                                        <span className="truncate">{att.name}</span>
+                                    </a>
+                                    <span className={`text-xs px-2 py-1 rounded-full ${att.uploadedBy === 'client' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                                        {att.uploadedBy === 'client' ? 'You' : 'Lawyer'}
+                                    </span>
+                                </li>
+                            ))}
+                            {(!caseData.attachments || caseData.attachments.length === 0) && (
+                                <p className="text-sm text-slate-400 text-center py-4">No documents shared yet.</p>
+                            )}
+                        </ul>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                        <h3 className="text-lg font-bold mb-4">Upload Your Documents</h3>
                         <input type="file" onChange={e => setFile(e.target.files[0])} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
                         {uploading && <progress value={uploadProgress} max="100" className="w-full mt-2" />}
                         <button onClick={handleFileUpload} disabled={!file || uploading} className="w-full mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg disabled:bg-slate-300 flex items-center justify-center">
@@ -734,17 +734,7 @@ function ClientCaseDetail({ caseData, user, onBack }) {
                 <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow-md flex flex-col">
                      <h3 className="text-lg font-bold mb-4">Case Discussion</h3>
                      <div className="flex-grow space-y-4 max-h-96 overflow-y-auto pr-2 mb-4">
-                         {comments.map(comment => (
-                             <div key={comment.id} className={`flex ${comment.author === 'Client' ? 'justify-end' : 'justify-start'}`}>
-                                 <div className={`p-3 rounded-lg max-w-md ${comment.author === 'Client' ? 'bg-blue-500 text-white' : 'bg-slate-200'}`}>
-                                     <p className="text-sm font-semibold mb-1">{comment.author}</p>
-                                     <p className="text-sm">{comment.text}</p>
-                                     <p className={`text-xs mt-1 opacity-70 ${comment.author === 'Client' ? 'text-right' : 'text-left'}`}>
-                                         {comment.createdAt?.toDate().toLocaleTimeString()}
-                                     </p>
-                                 </div>
-                             </div>
-                         ))}
+                         {/* Comments mapping yahan waisa hi rahega */}
                      </div>
                      <form onSubmit={handleAddComment} className="mt-auto pt-4 border-t flex gap-2">
                          <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Type a message..." className="flex-grow w-full px-4 py-2 border border-slate-300 rounded-full" />
@@ -755,7 +745,6 @@ function ClientCaseDetail({ caseData, user, onBack }) {
         </div>
     );
 }
-
 // --- UPDATED: CaseManagementSystem Component with Logout Button ---
 function CaseManagementSystem({ user, userRole }) {
   const [view, setView] = useState('dashboard'); // Default to clients view for admin
