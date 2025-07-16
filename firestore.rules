@@ -14,6 +14,29 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.role == 'admin';
     }
 
+    // Rule for 'users' and 'clients' collections
+    match /{collection}/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Main rule for all user-specific data (cases, invoices, etc.)
+    match /artifacts/{appId}/users/{userId}/{collection}/{docId} {
+      // User sirf apne data ko parh aur likh sakta hai.
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --- Collection Group Rules (For Client Portal) ---
+
+    // Client ko ijazat deta hai ke woh poore database se apne cases dhundh sake.
+    match /{path=**}/cases/{caseId} {
+      allow read: if isSignedIn() && request.auth.uid == resource.data.clientId;
+    }
+
+    // Client ko ijazat deta hai ke woh apne case ke comments parh aur likh sake.
+    match /{path=**}/comments/{commentId} {
+      // Hum yahan parent case ka data get() kar rahe hain, jo ke ab theek kaam karega.
+      allow read, write: if isSignedIn() && request.auth.uid == get(path[0]).data.clientId;
+    }
     // --- User and Client Management ---
     match /users/{userId} {
       allow list: if isAdmin();
