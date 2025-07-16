@@ -2159,6 +2159,7 @@ const StatCard = ({ iconName, title, value, color }) => {
 function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }) {
     const initialFormState = { clientName: '', clientAddress: '', clientContact: '', clientEmail: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '', hourlyRate: 0, expenses: [], assignedTo: [], allowAssignedToEdit: false };
     const [formData, setFormData] = useState(initialFormState);
+    const [clients, setClients] = useState([]);
     const [newDate, setNewDate] = useState('');
     const [newTag, setNewTag] = useState('');
     const [newExpense, setNewExpense] = useState({ description: '', amount: '' });
