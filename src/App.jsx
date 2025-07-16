@@ -668,6 +668,17 @@ function ClientCaseDetail({ caseData, user, onBack }) {
 function CaseManagementSystem({ user, userRole }) {
   const [view, setView] = useState('dashboard'); // Default to clients view for admin
   const [searchTerm, setSearchTerm] = useState('');
+  const [clients, setClients] = useState([]); // <-- Nayi state add karein
+
+  // Clients ki list fetch karne ke liye naya useEffect add karein
+  useEffect(() => {
+    if (userRole === 'admin') {
+        const unsub = onSnapshot(collection(db, "clients"), (snapshot) => {
+            setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+        return () => unsub();
+    }
+  }, [userRole]);
 
   // --- ADDED: Logout handler ---
   const handleLogout = async () => {
@@ -718,31 +729,22 @@ function CaseManagementSystem({ user, userRole }) {
       </header>
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
         {view === 'dashboard' && <DashboardView user={user} setView={setView} setSearchTerm={setSearchTerm} />}
-        {view === 'cases' && <CasesView user={user} userRole={userRole} searchTerm={searchTerm} setSearchTerm={setSearchTerm} />}
+        {view === 'cases' && <CasesView user={user} userRole={userRole} searchTerm={searchTerm} setSearchTerm={setSearchTerm} clients={clients} />}
         {view === 'calendar' && <CalendarView user={user} />}
         {view === 'invoices' && <InvoicesView user={user} />}
         {view === 'admin' && userRole === 'admin' && <AdminPanel />}
-        {view === 'clients' && userRole === 'admin' && <AdminClientManagement />}
+        {view === 'clients' && userRole === 'admin' && <AdminClientManagement clients={clients} />}
       </main>
     </>
   );
 }
-function AdminClientManagement() {
-    const [clients, setClients] = useState([]);
-    const [loading, setLoading] = useState(true);
+function AdminClientManagement({ clients = [] }) { // <-- 'clients' ko prop ke taur par receive karein
+    const [loading, setLoading] = useState(false); // Loading state ko theek karein
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [newClientName, setNewClientName] = useState('');
     const [newClientPhone, setNewClientPhone] = useState('');
     const [newClientPassword, setNewClientPassword] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-
-    useEffect(() => {
-        const unsub = onSnapshot(collection(db, "clients"), (snapshot) => {
-            setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            setLoading(false);
-        });
-        return () => unsub();
-    }, []);
 
     const handleAddClient = async (e) => {
         e.preventDefault();
@@ -766,7 +768,6 @@ function AdminClientManagement() {
         setIsSubmitting(false);
     };
 
-    if (loading) return <LoadingScreen message="Loading clients..." />;
 
     return (
         <div className="bg-white p-6 rounded-xl shadow-lg">
@@ -1271,7 +1272,7 @@ const InvoiceStatusBadge = ({ status }) => {
 // --- CasesView Component (Updated) ---
 // Is poore function ko apni App.jsx file ke CasesView function se replace karein.
 // ----------------------------------------------------------------------------------
-function CasesView({ user, searchTerm, setSearchTerm, userRole }) {
+function CasesView({ user, userRole, searchTerm, setSearchTerm, clients }) { // <-- 'clients' add karein
   const [cases, setCases] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1531,7 +1532,7 @@ function CasesView({ user, searchTerm, setSearchTerm, userRole }) {
         </AnimatePresence>
       </div>
 
-      <AnimatePresence>{isModalOpen && <CaseFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveCase} caseData={editingCase} userRole={userRole} allUsers={allUsers} />}</AnimatePresence>
+      <AnimatePresence>{isModalOpen && <CaseFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveCase} caseData={editingCase} userRole={userRole} allUsers={allUsers} clients={clients} />}</AnimatePresence>
       <AnimatePresence>{deletingCaseId && <ConfirmDeleteModal isOpen={!!deletingCaseId} onClose={() => setDeletingCaseId(null)} onConfirm={confirmDelete} />}</AnimatePresence>
     </>
   );
@@ -2156,10 +2157,9 @@ const StatCard = ({ iconName, title, value, color }) => {
 // --- CaseFormModal Component (Updated) ---
 // Is poore function ko apni App.jsx file ke CaseFormModal function se replace karein.
 // ----------------------------------------------------------------------------------
-function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }) {
-    const initialFormState = { clientName: '', clientAddress: '', clientContact: '', clientEmail: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '', hourlyRate: 0, expenses: [], assignedTo: [], allowAssignedToEdit: false };
+function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers, clients = [] }) { // <-- 'clients' ko prop ke taur par receive karein
+    const initialFormState = { clientName: '', clientId: '', clientAddress: '', clientContact: '', clientEmail: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '', hourlyRate: 0, expenses: [], assignedTo: [], allowAssignedToEdit: false };
     const [formData, setFormData] = useState(initialFormState);
-    const [clients, setClients] = useState([]);
     const [newDate, setNewDate] = useState('');
     const [newTag, setNewTag] = useState('');
     const [newExpense, setNewExpense] = useState({ description: '', amount: '' });
@@ -2172,9 +2172,7 @@ function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }
 
     useEffect(() => {
         if (caseData) {
-            // Ensure assignedTo is always an array of strings (UIDs)
-            const assignedUIDs = (caseData.assignedTo || []).map(item => typeof item === 'object' ? item.id : item);
-            setFormData({ ...initialFormState, ...caseData, assignedTo: assignedUIDs });
+            setFormData({ ...initialFormState, ...caseData });
         } else {
             setFormData(initialFormState);
         }
@@ -2218,11 +2216,35 @@ function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers }
                     <button onClick={onClose} className="p-1 rounded-full text-slate-500 hover:bg-slate-200"><X className="w-5 h-5" /></button>
                 </div>
                 <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4">
-                    {/* Client and Case Info sections remain the same */}
                     <h3 className="text-lg font-semibold text-slate-700 border-b pb-2">Client Information</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {userRole === 'admin' ? (
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 mb-1">Assign to Client</label>
+                            <select 
+                                name="clientId" 
+                                value={formData.clientId || ''} 
+                                onChange={(e) => {
+                                    const selectedClient = clients.find(c => c.id === e.target.value);
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        clientId: selectedClient ? selectedClient.id : '',
+                                        clientName: selectedClient ? selectedClient.name : '',
+                                        clientEmail: selectedClient ? selectedClient.email : ''
+                                    }));
+                                }}
+                                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                            >
+                                <option value="">Select an existing client</option>
+                                {clients.map(client => ( 
+                                    <option key={client.id} value={client.id}>{client.name} ({client.email})</option>
+                                ))}
+                            </select>
+                        </div>
+                    ) : (
                         <InputField name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} required />
-                        <InputField name="clientEmail" label="Client Email" type="email" value={formData.clientEmail} onChange={handleChange} />
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <InputField name="clientEmail" label="Client Email" type="email" value={formData.clientEmail} onChange={handleChange} disabled={userRole === 'admin' && !!formData.clientId} />
                         <InputField name="clientContact" label="Client Contact Number" value={formData.clientContact} onChange={handleChange} />
                     </div>
                     <TextAreaField name="clientAddress" label="Client Address" value={formData.clientAddress} onChange={handleChange} />
