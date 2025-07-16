@@ -549,7 +549,17 @@ function ClientPortal({ user }) {
     useEffect(() => {
         const q = query(collectionGroup(db, 'cases'), where('clientId', '==', user.uid));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const casesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const casesData = snapshot.docs.map(doc => {
+                // *** YEH ZAROORI HAI: Case ke owner ki ID path se nikalen ***
+                const pathSegments = doc.ref.path.split('/');
+                const ownerId = pathSegments[3]; // Path structure: artifacts/{appId}/users/{ownerId}/cases/{caseId}
+                
+                return { 
+                    id: doc.id, 
+                    ownerId: ownerId, // OwnerID ko case object mein save karen
+                    ...doc.data() 
+                };
+            });
             setCases(casesData);
             setLoading(false);
         });
@@ -561,7 +571,11 @@ function ClientPortal({ user }) {
     }
     
     if (selectedCase) {
-        return <ClientCaseDetail caseData={selectedCase} user={user} onBack={() => setSelectedCase(null)} />;
+        return <ClientCaseDetail 
+                    caseData={selectedCase} 
+                    user={user} 
+                    onBack={() => setSelectedCase(null)} 
+                />;
     }
 
     return (
@@ -598,10 +612,13 @@ function ClientCaseDetail({ caseData, user, onBack }) {
     const [comments, setComments] = useState([]);
     const [newComment, setNewComment] = useState("");
     const [file, setFile] = useState(null);
+    const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
 
+    // Comments ke liye Firestore ka path banayen. `caseData.ownerId` yahan istemal hoga.
     const commentsRef = collection(db, `artifacts/default-app-id/users/${caseData.ownerId}/cases/${caseData.id}/comments`);
 
+    // Real-time mein comments fetch karne ke liye useEffect
     useEffect(() => {
         const q = query(commentsRef, orderBy("createdAt", "asc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -610,74 +627,105 @@ function ClientCaseDetail({ caseData, user, onBack }) {
         return unsubscribe;
     }, [commentsRef]);
 
+    // Naya comment add karne ka function
     const handleAddComment = async (e) => {
         e.preventDefault();
         if (newComment.trim() === "") return;
+
         await addDoc(commentsRef, {
             text: newComment,
             createdAt: serverTimestamp(),
-            author: "Client",
+            author: "Client", // Taake lawyer ko pata chale ke client ne message bheja hai
             authorId: user.uid,
         });
         setNewComment("");
     };
 
+    // File upload karne ka function
     const handleFileUpload = async () => {
         if (!file) return;
+        setUploading(true);
         const storagePath = `client_uploads/${user.uid}/${caseData.id}/${Date.now()}_${file.name}`;
         const storageRef = ref(storage, storagePath);
         const uploadTask = uploadBytesResumable(storageRef, file);
 
         uploadTask.on('state_changed', 
             (snapshot) => setUploadProgress((snapshot.bytesTransferred / snapshot.totalBytes) * 100),
-            (error) => toast.error("Upload failed: " + error.message),
+            (error) => {
+                toast.error("Upload failed: " + error.message);
+                setUploading(false);
+            },
             async () => {
                 const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                // Case document ka reference banayen, `ownerId` yahan bhi zaroori hai
                 const caseDocRef = doc(db, `artifacts/default-app-id/users/${caseData.ownerId}/cases/${caseData.id}`);
+                
                 await updateDoc(caseDocRef, {
-                    attachments: arrayUnion({ name: file.name, url: downloadURL, storagePath, uploadedBy: 'client' })
+                    attachments: arrayUnion({ 
+                        name: file.name, 
+                        url: downloadURL, 
+                        storagePath, 
+                        uploadedBy: 'client',
+                        uploadedAt: serverTimestamp() 
+                    })
                 });
+                
                 toast.success("File uploaded successfully!");
                 setFile(null);
                 setUploadProgress(0);
+                setUploading(false);
             }
         );
     };
 
-    return (
+     return (
         <div className="bg-slate-50 min-h-screen">
-            <header className="bg-white shadow-sm p-4">
-                <button onClick={onBack} className="text-blue-600 hover:underline">{"< Back to Dashboard"}</button>
+            <header className="bg-white shadow-sm sticky top-0 z-10">
+                <div className="container mx-auto px-6 py-4">
+                    <button onClick={onBack} className="font-semibold text-blue-600 hover:underline">{"< Back to Dashboard"}</button>
+                </div>
             </header>
             <main className="container mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 space-y-6">
+                {/* Left Column: Case Details & Upload */}
+                <div className="lg:col-span-1 space-y-6">
                     <div className="bg-white p-6 rounded-lg shadow-md">
-                        <h3 className="text-lg font-bold mb-4">Case Discussion</h3>
-                        <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                            {comments.map(comment => (
-                                <div key={comment.id} className={`flex ${comment.authorId === user.uid ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`p-3 rounded-lg max-w-md ${comment.authorId === user.uid ? 'bg-blue-500 text-white' : 'bg-slate-200'}`}>
-                                        <p className="text-sm">{comment.text}</p>
-                                        <p className={`text-xs mt-1 opacity-70 ${comment.authorId === user.uid ? 'text-right' : 'text-left'}`}>
-                                            {comment.createdAt?.toDate().toLocaleTimeString()}
-                                        </p>
-                                    </div>
-                                </div>
-                            ))}
+                        <h2 className="text-2xl font-bold text-slate-800">{caseData.caseTitle}</h2>
+                        <p className="text-sm text-slate-500 mb-4">Case #: {caseData.caseNumber}</p>
+                        <div className="space-y-3">
+                            <InfoItem icon={Activity} label="Status" value={<CaseStatusBadge status={caseData.caseStatus} />} />
+                            <InfoItem icon={Briefcase} label="Court" value={caseData.courtName} />
                         </div>
-                        <form onSubmit={handleAddComment} className="mt-4 flex gap-2">
-                            <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Type a message..." className="flex-grow w-full px-3 py-2 border border-slate-300 rounded-full" />
-                            <button type="submit" className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700"><Send className="w-5 h-5" /></button>
-                        </form>
                     </div>
-                </div>
-                <div className="space-y-6">
                     <div className="bg-white p-6 rounded-lg shadow-md">
                         <h3 className="text-lg font-bold mb-4">Upload Documents</h3>
                         <input type="file" onChange={e => setFile(e.target.files[0])} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
-                        {uploadProgress > 0 && <progress value={uploadProgress} max="100" className="w-full mt-2" />}
-                        <button onClick={handleFileUpload} disabled={!file} className="w-full mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg disabled:bg-slate-300">Upload</button>
+                        {uploading && <progress value={uploadProgress} max="100" className="w-full mt-2" />}
+                        <button onClick={handleFileUpload} disabled={!file || uploading} className="w-full mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg disabled:bg-slate-300 flex items-center justify-center">
+                           {uploading ? <Loader2 className="animate-spin" /> : 'Upload'}
+                        </button>
                     </div>
+                </div>
+
+                {/* Right Column: Secure Messaging */}
+                <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow-md flex flex-col">
+                     <h3 className="text-lg font-bold mb-4">Case Discussion</h3>
+                     <div className="flex-grow space-y-4 max-h-96 overflow-y-auto pr-2 mb-4">
+                         {comments.map(comment => (
+                             <div key={comment.id} className={`flex ${comment.author === 'Client' ? 'justify-end' : 'justify-start'}`}>
+                                 <div className={`p-3 rounded-lg max-w-md ${comment.author === 'Client' ? 'bg-blue-500 text-white' : 'bg-slate-200'}`}>
+                                     <p className="text-sm font-semibold mb-1">{comment.author}</p>
+                                     <p className="text-sm">{comment.text}</p>
+                                     <p className={`text-xs mt-1 opacity-70 ${comment.author === 'Client' ? 'text-right' : 'text-left'}`}>
+                                         {comment.createdAt?.toDate().toLocaleTimeString()}
+                                     </p>
+                                 </div>
+                             </div>
+                         ))}
+                     </div>
+                     <form onSubmit={handleAddComment} className="mt-auto pt-4 border-t flex gap-2">
+                         <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Type a message..." className="flex-grow w-full px-4 py-2 border border-slate-300 rounded-full" />
+                         <button type="submit" className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700"><Send className="w-5 h-5" /></button>
+                     </form>
                 </div>
             </main>
         </div>
