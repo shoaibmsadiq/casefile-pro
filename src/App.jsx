@@ -660,13 +660,15 @@ function ClientCaseDetail({ caseData, user, onBack }) {
             async () => {
                 const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                 const caseDocRef = doc(db, `artifacts/default-app-id/users/${caseData.ownerId}/cases/${caseData.id}`);
+                // *** YAHAN TABDEELI KI GAYI HAI ***
+                // serverTimestamp() ko Timestamp.now() se badal diya gaya hai.
                 await updateDoc(caseDocRef, {
                     attachments: arrayUnion({ 
                         name: file.name, 
                         url: downloadURL, 
                         storagePath, 
                         uploadedBy: 'client', // Yeh batata hai ke client ne upload kiya
-                        uploadedAt: serverTimestamp() 
+                        uploadedAt: Timestamp.now() // <-- THEEK KIYA GAYA CODE
                     })
                 });
                 toast.success("File uploaded successfully!");
