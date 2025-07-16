@@ -634,21 +634,38 @@ function ClientCaseDetail({ caseData, user, onBack }) {
         return unsubscribe;
     }, [commentsRef]);
 
-    // *** FIX 1: handleAddComment ko theek kiya gaya hai ***
+    // *** YEH NAYA AUR THEEK KIYA GAYA FUNCTION HAI ***
     const handleAddComment = async (e) => {
         e.preventDefault();
         if (newComment.trim() === "") return;
+
+        // Create a list of all users who can see this comment
+        const participants = [
+            caseData.ownerId, // The lawyer who owns the case
+            caseData.clientId  // The client
+        ];
+        // Add any assigned lawyers to the list
+        if (caseData.assignedTo && caseData.assignedTo.length > 0) {
+            participants.push(...caseData.assignedTo);
+        }
+        // Remove duplicate UIDs to be safe
+        const uniqueParticipants = [...new Set(participants)];
+
+        const newCommentData = {
+            text: newComment,
+            createdAt: serverTimestamp(),
+            author: "Client",
+            authorId: user.uid,
+            // Store the participants array on the comment document itself
+            participants: uniqueParticipants 
+        };
+
         try {
-            await addDoc(commentsRef, {
-                text: newComment,
-                createdAt: serverTimestamp(), // addDoc ke sath serverTimestamp theek kaam karta hai
-                author: "Client",
-                authorId: user.uid,
-            });
+            await addDoc(commentsRef, newCommentData);
             setNewComment("");
         } catch (error) {
             console.error("Error adding comment:", error.message);
-            toast.error("Could not send message.");
+            toast.error("Could not send message. Please try again.");
         }
     };
 
