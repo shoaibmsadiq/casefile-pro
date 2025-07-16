@@ -161,7 +161,7 @@ const generateInvoice = (invoiceData, caseData) => {
   doc.text("Thank you for your business.", 14, footerY);
   doc.save(`Invoice-${invoiceData.invoiceNumber || 'N/A'}.pdf`);
 };
-// Main Function App 
+// --- Main App Component ---
 function App() {
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
@@ -212,26 +212,25 @@ function App() {
     return <LoadingScreen message="Loading..." />;
   }
 
-  // --- UPDATED RENDER LOGIC ---
+  // --- CORRECTED RENDER LOGIC ---
   if (isClientPortal) {
-      // Ab hum yeh faisla ClientPortal component par chhor denge ke
-      // login screen dikhani hai ya dashboard.
-      return <ClientPortal user={user} loading={loading} />;
-  }
-
-  // Main portal (for lawyers/admins)
-  if (user && (userRole === 'admin' || userRole === 'member')) {
-      if (isEmailVerified) {
-          return <CaseManagementSystem user={user} userRole={userRole} />;
-      } else {
-          return <VerifyEmailScreen user={user} />;
-      }
-  } else if (user && userRole === 'client') {
-      // Agar koi client ghalti se main portal par aa jaye to usay redirect karein
-      return <AccessDeniedScreen message="Access denied. Redirecting to Client Portal..." redirectTo="/portal" />;
+    if (user && userRole === 'client') {
+      return <ClientDashboard user={user} />;
+    } else {
+      return <ClientLoginScreen />;
+    }
   } else {
-      // Agar koi user login nahi hai, to lawyer/admin login screen dikhayein
+    if (user && (userRole === 'admin' || userRole === 'member')) {
+      if (isEmailVerified) {
+        return <CaseManagementSystem user={user} userRole={userRole} />;
+      } else {
+        return <VerifyEmailScreen user={user} />;
+      }
+    } else if (user && userRole === 'client') {
+      return <AccessDeniedScreen message="Redirecting to Client Portal..." redirectTo="/portal" />;
+    } else {
       return <AuthScreen />;
+    }
   }
 }
 
@@ -426,10 +425,8 @@ function ClientLoginScreen() {
         setLoading(true);
         setError('');
         try {
-            // Construct the dummy email from the phone number
             const email = `${phone}@casefile-portal.local`;
             await signInWithEmailAndPassword(auth, email, password);
-            // onAuthStateChanged will handle the redirect
         } catch (err) {
             let friendlyError = "Invalid phone number or password.";
             if (err.code === 'auth/invalid-credential') {
@@ -455,6 +452,64 @@ function ClientLoginScreen() {
                     </button>
                 </form>
             </div>
+        </div>
+    );
+}
+function ClientDashboard({ user }) {
+    const [cases, setCases] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const q = query(collectionGroup(db, 'cases'), where('clientId', '==', user.uid));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const casesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setCases(casesData);
+            setLoading(false);
+        }, (err) => {
+            console.error("Error fetching client cases:", err);
+            toast.error("Could not load your cases.");
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, [user.uid]);
+
+    return (
+        <div className="bg-slate-50 min-h-screen">
+            <header className="bg-white shadow-sm">
+                <div className="container mx-auto px-6 py-4 flex justify-between items-center">
+                    <h1 className="text-xl font-bold text-slate-800">Your Case Dashboard</h1>
+                    <button onClick={() => signOut(auth)} className="flex items-center gap-2 text-sm text-red-600 hover:text-red-800">
+                        <LogOut className="w-4 h-4" /> Log Out
+                    </button>
+                </div>
+            </header>
+            <main className="container mx-auto p-6">
+                {loading ? (
+                    <LoadingScreen message="Loading your cases..." />
+                ) : cases.length > 0 ? (
+                    <div className="space-y-6">
+                        {cases.map(caseItem => (
+                            <div key={caseItem.id} className="bg-white p-6 rounded-lg shadow-md">
+                                <h2 className="text-2xl font-bold text-slate-800">{caseItem.caseTitle}</h2>
+                                <p className="text-sm text-slate-500 mb-4">Case #: {caseItem.caseNumber}</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <InfoItem icon={Activity} label="Status" value={<CaseStatusBadge status={caseItem.caseStatus} />} />
+                                    <InfoItem icon={Briefcase} label="Court" value={caseItem.courtName} />
+                                    {caseItem.hearingDates && caseItem.hearingDates.length > 0 && (
+                                        <InfoItem 
+                                            icon={CalendarIcon} 
+                                            label="Next Hearing" 
+                                            value={new Date(caseItem.hearingDates[0]).toLocaleDateString()} 
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p>You do not have any cases assigned to you yet.</p>
+                )}
+            </main>
         </div>
     );
 }
