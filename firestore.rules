@@ -32,77 +32,54 @@ service cloud.firestore {
       allow list, read, write: if isSignedIn() && requestingUserUid() == userId;
     }
 
-
     // --- Main Rules for Artifacts (Cases, Invoices, etc.) ---
     match /artifacts/{appId}/users/{pathOwnerId}/cases/{caseId} {
 
-      // --- Helper Functions for this context ---
-      function isCaseOwner() { 
-        return request.auth.uid == pathOwnerId; 
-      }
-      function isClientOfCase() { 
-        // Checks the existing document to see if the requester is the client
-        return isSignedIn() && resource.data.clientId == request.auth.uid; 
-      }
-      function isAssignedToCase() {
+      function isCaseOwner() { return requestingUserUid() == pathOwnerId; }
+      function isClientOfCase(caseData) { return isSignedIn() && caseData.clientId == requestingUserUid(); }
+      function isAssignedToCase(caseData) {
         return isSignedIn() && 
-               'assignedTo' in resource.data && 
-               resource.data.assignedTo is list && 
-               request.auth.uid in resource.data.assignedTo;
-      }
-      
-      // === YEH FUNCTION BADLA GAYA HAI ===
-      // This is a new, more reliable helper function for secure client uploads.
-      function clientIsUpdatingAttachments() {
-        // This function checks that:
-        // 1. The user is the designated client for this case.
-        // 2. The ONLY field being changed in the update is 'attachments'.
-        
-        // Find out which fields are being changed.
-        let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-        
-        // Allow the update only if the user is the client AND only the 'attachments' key is being changed.
-        return isClientOfCase() && changedKeys.size() == 1 && 'attachments' in changedKeys;
+               'assignedTo' in caseData && 
+               caseData.assignedTo is list && 
+               caseData.assignedTo.hasAny([requestingUserUid()]);
       }
 
-
-      // --- Rules for the CASE document ---
-      allow list, read: if isCaseOwner() || isAssignedToCase() || isClientOfCase() || isAdmin();
+      // Rules for the CASE document
+      allow list, read: if isCaseOwner() || isAssignedToCase(resource.data) || isClientOfCase(resource.data) || isAdmin();
       allow create, delete: if isCaseOwner() || isAdmin();
-      
-      // The update rule now uses the more reliable helper function.
-      allow update: if isCaseOwner() || 
-                      isAdmin() || 
-                      (isAssignedToCase() && resource.data.allowAssignedToEdit == true) ||
-                      clientIsUpdatingAttachments();
+      allow update: if isCaseOwner() || isAdmin() || (isAssignedToCase(resource.data) && resource.data.allowAssignedToEdit == true);
 
-
-      // Rules for 'comments' subcollection
+      // --- Rules for the 'comments' subcollection ---
       match /comments/{commentId} {
+        // This function gets the parent case document to check permissions.
+        // This is the most robust way to handle this.
         function isParticipantOfParentCase() {
-          let caseData = get(/databases/$(database)/documents/artifacts/$(appId)/users/$(pathOwnerId)/cases/$(caseId)).data;
-          let isAssigned = 'assignedTo' in caseData && caseData.assignedTo is list && caseData.assignedTo.hasAny([requestingUserUid()]);
-          return caseData.clientId == requestingUserUid() || pathOwnerId == requestingUserUid() || isAssigned;
+          let caseDoc = get(/databases/$(database)/documents/artifacts/$(appId)/users/$(pathOwnerId)/cases/$(caseId));
+          return isCaseOwner() || isClientOfCase(caseDoc.data) || isAssignedToCase(caseDoc.data);
         }
-        allow read, create: if isParticipantOfParentCase() || isAdmin();
+
+        // READ permission is based on the parent case. This works for OLD and NEW comments.
+        allow read: if isParticipantOfParentCase() || isAdmin();
+
+        // CREATE permission checks the incoming data, which is more efficient.
+        allow create: if request.auth.uid in request.resource.data.participants || isAdmin();
+        
+        // UPDATE/DELETE permission is based on the comment's author.
         allow update, delete: if requestingUserUid() == resource.data.authorId;
       }
 
       // Rules for 'tasks' subcollection
       match /tasks/{taskId} {
-        allow read, write: if isCaseOwner() || isAssignedToCase() || isAdmin();
+        allow read, write: if isCaseOwner() || isAssignedToCase(get(/databases/$(database)/documents/artifacts/$(appId)/users/$(pathOwnerId)/cases/$(caseId)).data) || isAdmin();
       }
     }
 
-    // FIX 2: Added a new rule block for invoices
     match /artifacts/{appId}/users/{pathOwnerId}/invoices/{invoiceId} {
-        // Only the owner of the artifacts or an admin can manage invoices.
         allow read, list, write: if requestingUserUid() == pathOwnerId || isAdmin();
     }
 
-     // --- Collection Group Rules ---
+    // --- Collection Group Rules ---
     match /{path=**}/cases/{caseId} {
-        // FIX: Added isAdmin() to allow admins to perform this query without errors.
         allow read: if isAdmin() || 
                      (isSignedIn() && 
                        (
@@ -115,7 +92,15 @@ service cloud.firestore {
                        )
                      );
     }
-    // Rule for 'tasks' Collection Group query
+    
+    // *** THIS RULE HAS BEEN CORRECTED ***
+    // Rule for 'comments' Collection Group query
+    match /{path=**}/comments/{commentId} {
+        // A client can read any comment that has their UID in the `clientId` field.
+        // This works for the dashboard query and is consistent.
+        allow read: if request.auth.uid == resource.data.clientId || isAdmin();
+    }
+    
     match /{path=**}/tasks/{taskId} {
         allow read: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.assignedTo);
     }

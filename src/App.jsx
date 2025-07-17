@@ -26,6 +26,7 @@ import {
   where,           
   orderBy,         
   getDoc,// Yeh add karein
+  getDocs, 
   setDoc,
 } from 'firebase/firestore';
 import {
@@ -76,6 +77,93 @@ const storage = getStorage(app);
 const functions = getFunctions(app);
 window.auth = auth; // <<< YAHAN PAR NAYA CODE ADD KAREIN
 
+// STEP 1: Yeh poora naya function apni App.jsx file mein kahin bhi add kar den.
+// Yeh naye summary cards ke liye hai.
+// -----------------------------------------------------------------------------
+const DashboardStatCard = ({ icon: Icon, label, value, color }) => {
+    const colors = {
+        blue: 'bg-blue-100 text-blue-600',
+        purple: 'bg-purple-100 text-purple-600',
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div className={`p-4 rounded-full ${colors[color] || 'bg-slate-100'}`}>
+                <Icon className="w-7 h-7" />
+            </div>
+            <div>
+                <p className="text-sm text-slate-500">{label}</p>
+                <p className="text-2xl font-bold text-slate-800">{value}</p>
+            </div>
+        </div>
+    );
+};
+// STEP 1: Yeh dono naye functions apni App.jsx file mein add kar den.
+// -----------------------------------------------------------------------------
+
+// Naya Component #1: Recent Activity Feed
+const RecentActivityFeed = ({ activities }) => {
+    const iconMap = {
+        comment: <MessageSquare className="w-5 h-5 text-blue-500" />,
+        attachment: <Paperclip className="w-5 h-5 text-green-500" />,
+        hearing: <CalendarIcon className="w-5 h-5 text-purple-500" />,
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-lg h-full">
+            <h3 className="font-bold text-slate-800 text-lg mb-4">Recent Activity</h3>
+            {activities.length > 0 ? (
+                <ul className="space-y-4">
+                    {activities.map(activity => (
+                        <li key={activity.id} className="flex items-start gap-4">
+                            <div className="p-2 bg-slate-100 rounded-lg mt-1">
+                                {iconMap[activity.type] || <Activity className="w-5 h-5 text-slate-500" />}
+                            </div>
+                            <div className="flex-grow">
+                                <p className="text-sm font-medium text-slate-700">{activity.description}</p>
+                                <p className="text-xs text-slate-500">
+                                    {moment(activity.date).fromNow()} in "{activity.caseTitle}"
+                                </p>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center text-slate-400">
+                    <Activity className="w-10 h-10 mb-2"/>
+                    <p className="text-sm text-slate-500">No recent activity to show.</p>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Naya Component #2: Tasks for You
+const ClientTasks = ({ tasks }) => {
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-lg h-full">
+            <h3 className="font-bold text-slate-800 text-lg mb-4">Action Required by You</h3>
+            {tasks.length > 0 ? (
+                <ul className="space-y-3">
+                    {tasks.map(task => (
+                        <li key={task.id} className="flex items-center gap-3 p-2 rounded-lg bg-yellow-50">
+                            <div className={`w-2 h-2 rounded-full ${task.completed ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+                            <span className={`flex-grow text-sm ${task.completed ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                                {task.title}
+                            </span>
+                            {/* Note: Client cannot mark tasks as complete in this version. */}
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center text-slate-400">
+                    <CheckCircle2 className="w-10 h-10 mb-2"/>
+                    <p className="text-sm text-slate-500">No tasks assigned to you currently.</p>
+                </div>
+            )}
+        </div>
+    );
+};
 // --- PDF Generation Utility ---
 const generateInvoice = (invoiceData, caseData) => {
   const doc = new jsPDF();
@@ -588,38 +676,99 @@ function ClientCalendarView({ cases }) {
 
 // STEP 2: Apni App.jsx file mein mojooda ClientPortal function ko
 // is poore naye code se replace kar den.
-// -----------------------------------------------------------------------------
 function ClientPortal({ user }) {
     const [cases, setCases] = useState([]);
+    const [comments, setComments] = useState([]);
+    const [clientTasks, setClientTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedCase, setSelectedCase] = useState(null);
-    const [view, setView] = useState('dashboard'); // 'dashboard' ya 'calendar'
+    const [view, setView] = useState('dashboard');
 
     useEffect(() => {
-        const q = query(collectionGroup(db, 'cases'), where('clientId', '==', user.uid));
-        
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const casesData = snapshot.docs.map(doc => {
+        if (!user) return;
+
+        const fetchData = async () => {
+            setLoading(true);
+
+            // Fetch all cases for the client
+            const casesQuery = query(collectionGroup(db, 'cases'), where('clientId', '==', user.uid));
+            const casesSnapshot = await getDocs(casesQuery);
+            const casesData = casesSnapshot.docs.map(doc => {
                 const pathSegments = doc.ref.path.split('/');
                 const ownerId = pathSegments[3]; 
                 return { id: doc.id, ownerId: ownerId, ...doc.data() };
             });
             setCases(casesData);
+
+            // Fetch all comments for the client's cases
+            const commentsQuery = query(collectionGroup(db, 'comments'), where('clientId', '==', user.uid));
+            const commentsSnapshot = await getDocs(commentsQuery);
+            const commentsData = commentsSnapshot.docs.map(doc => {
+                const caseId = doc.ref.parent.parent.id;
+                return { id: doc.id, caseId: caseId, ...doc.data() };
+            });
+            setComments(commentsData);
+
+            // Fetch all tasks for the client
+            const tasksQuery = query(collectionGroup(db, 'tasks'), where('assignedTo', '==', user.uid));
+            const tasksSnapshot = await getDocs(tasksQuery);
+            const tasksData = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setClientTasks(tasksData);
+
             setLoading(false);
-        });
-        return () => unsubscribe();
+        };
+
+        fetchData().catch(console.error);
+
+        // We are using getDocs for initial load. If you need real-time updates,
+        // you can switch back to onSnapshot, but the logic becomes more complex.
+        // For a dashboard, a one-time load is often sufficient.
+
     }, [user.uid]);
+
+    // useMemo istemal karke dashboard ke liye zaroori maloomat calculate karen
+    const dashboardData = useMemo(() => {
+        if (loading) return { allActivities: [] };
+
+        const clientName = cases[0]?.clientName || user.displayName || 'Client';
+        const activeCases = cases.filter(c => c.caseStatus === 'Active').length;
+
+        const upcomingHearings = cases.flatMap(c => c.hearingDates || []).map(d => new Date(d)).filter(d => d >= new Date()).sort((a, b) => a - b);
+        const nextHearing = upcomingHearings[0] || null;
+
+        const commentActivities = comments.map(c => ({
+            id: c.id,
+            type: 'comment',
+            description: `Message from ${c.author}: "${c.text.substring(0, 30)}..."`,
+            date: c.createdAt?.toDate(),
+            caseTitle: cases.find(cs => cs.id === c.caseId)?.caseTitle || 'a case'
+        }));
+        
+        const attachmentActivities = cases.flatMap(c => 
+            (c.attachments || []).map(a => ({
+                id: a.url,
+                type: 'attachment',
+                description: `Document added by ${a.uploadedBy || 'user'}: "${a.name}"`,
+                date: a.uploadedAt?.toDate(),
+                caseTitle: c.caseTitle
+            }))
+        );
+        
+        const allActivities = [...commentActivities, ...attachmentActivities]
+            .filter(act => act.date)
+            .sort((a, b) => b.date - a.date)
+            .slice(0, 5);
+
+        return { clientName, activeCases, nextHearing, allActivities };
+    }, [cases, comments, user.displayName, loading]);
+
 
     if (loading) {
         return <LoadingScreen message="Loading Client Portal..." />;
     }
     
     if (selectedCase) {
-        return <ClientCaseDetail 
-                    caseData={selectedCase} 
-                    user={user} 
-                    onBack={() => setSelectedCase(null)} 
-                />;
+        return <ClientCaseDetail caseData={selectedCase} user={user} onBack={() => setSelectedCase(null)} />;
     }
 
     return (
@@ -642,27 +791,42 @@ function ClientPortal({ user }) {
             </header>
             <main className="container mx-auto p-6">
                 {view === 'dashboard' && (
-                    cases.length > 0 ? (
-                        <div className="space-y-4">
-                            {cases.map(caseItem => (
-                                <div 
-                                    key={caseItem.id} 
-                                    onClick={() => setSelectedCase(caseItem)} 
-                                    className="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg transition-shadow"
-                                >
-                                    <h2 className="text-xl font-bold text-slate-800">{caseItem.caseTitle}</h2>
-                                    <p className="text-sm text-slate-500 mb-4">Case #: {caseItem.caseNumber}</p>
-                                    <CaseStatusBadge status={caseItem.caseStatus} />
+                    <div className="space-y-8">
+                        <div>
+                            <h1 className="text-3xl font-bold text-slate-800">Welcome, {dashboardData.clientName}!</h1>
+                            <p className="text-slate-500 mt-1">Here is a summary of your legal matters.</p>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <DashboardStatCard icon={Briefcase} label="Active Cases" value={dashboardData.activeCases} color="blue" />
+                            <DashboardStatCard icon={CalendarIcon} label="Next Hearing" value={dashboardData.nextHearing ? dashboardData.nextHearing.toLocaleDateString() : 'None Scheduled'} color="purple" />
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <RecentActivityFeed activities={dashboardData.allActivities} />
+                            <ClientTasks tasks={clientTasks} />
+                        </div>
+
+                        <div>
+                            <h2 className="text-2xl font-semibold text-slate-700 mb-4">Your Cases</h2>
+                            {cases.length > 0 ? (
+                                <div className="space-y-4">
+                                    {cases.map(caseItem => (
+                                        <div key={caseItem.id} onClick={() => setSelectedCase(caseItem)} className="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg hover:ring-2 hover:ring-blue-500 transition-all">
+                                            <div className="flex justify-between items-start">
+                                                <div><h3 className="text-lg font-bold text-slate-800">{caseItem.caseTitle}</h3><p className="text-sm text-slate-500">Case #: {caseItem.caseNumber}</p></div>
+                                                <CaseStatusBadge status={caseItem.caseStatus} />
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
+                            ) : (
+                                <div className="text-center py-12 bg-white rounded-lg shadow-md">
+                                    <Inbox className="mx-auto h-12 w-12 text-slate-400" /><h3 className="mt-2 text-sm font-medium text-slate-900">No Cases Found</h3><p className="mt-1 text-sm text-slate-500">You do not have any cases assigned to you yet.</p>
+                                </div>
+                            )}
                         </div>
-                    ) : (
-                        <div className="text-center py-12">
-                            <Inbox className="mx-auto h-12 w-12 text-slate-400" />
-                            <h3 className="mt-2 text-sm font-medium text-slate-900">No Cases Found</h3>
-                            <p className="mt-1 text-sm text-slate-500">You do not have any cases assigned to you yet.</p>
-                        </div>
-                    )
+                    </div>
                 )}
                 {view === 'calendar' && <ClientCalendarView cases={cases} />}
             </main>
@@ -704,6 +868,7 @@ function ClientCaseDetail({ caseData, user, onBack }) {
     if (caseData.assignedTo && caseData.assignedTo.length > 0) {
         participants.push(...caseData.assignedTo);
     }
+    // Remove duplicate UIDs to be safe
     const uniqueParticipants = [...new Set(participants)];
 
     const newCommentData = {
@@ -712,7 +877,9 @@ function ClientCaseDetail({ caseData, user, onBack }) {
         author: "Client",
         authorId: user.uid,
         // Store the participants array on the comment document itself
-        participants: uniqueParticipants 
+        participants: uniqueParticipants,
+        // Also store clientId for the dashboard's collectionGroup query
+        clientId: caseData.clientId 
     };
 
     try {
@@ -817,6 +984,81 @@ function ClientCaseDetail({ caseData, user, onBack }) {
                      </form>
                 </div>
             </main>
+        </div>
+    );
+}
+// STEP 1: Yeh poora naya function apni App.jsx file mein add kar den.
+// -------------------------------------------------------------------
+function CaseDiscussion({ caseData, loggedInUser }) {
+    const [comments, setComments] = useState([]);
+    const [newComment, setNewComment] = useState("");
+
+    // Comments collection ka path banayen
+    const commentsRef = collection(db, `artifacts/default-app-id/users/${caseData.ownerId}/cases/${caseData.id}/comments`);
+
+    // Comments ko real-time mein fetch karen
+    useEffect(() => {
+        const q = query(commentsRef, orderBy("createdAt", "asc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setComments(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+        }, (error) => {
+            console.error(`Error fetching comments for case ${caseData.id}:`, error);
+            toast.error(`Could not load discussion for "${caseData.caseTitle}".`);
+        });
+        return () => unsubscribe();
+    }, [caseData.id, caseData.ownerId]); // Dependencies theek se set karen
+
+    // Naya message bhejne ka function
+    const handleAddComment = async (e) => {
+        e.preventDefault();
+        if (newComment.trim() === "") return;
+
+        try {
+            await addDoc(commentsRef, {
+                text: newComment,
+                createdAt: serverTimestamp(),
+                author: loggedInUser.displayName || 'Lawyer', // Lawyer ka naam ya "Lawyer"
+                authorId: loggedInUser.uid,
+            });
+            setNewComment("");
+        } catch (error) {
+            console.error("Error adding comment:", error);
+            toast.error("Could not send message.");
+        }
+    };
+
+    return (
+        <div className="mt-4 pt-4 border-t border-slate-200">
+            <h4 className="font-semibold text-xs text-slate-500 mb-2 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" /> CASE DISCUSSION
+            </h4>
+            <div className="space-y-3 max-h-72 overflow-y-auto pr-2 bg-slate-50 p-3 rounded-lg">
+                {comments.length > 0 ? comments.map(comment => (
+                    <div key={comment.id} className={`flex ${comment.authorId === loggedInUser.uid ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`p-3 rounded-lg max-w-md shadow-sm ${comment.authorId === loggedInUser.uid ? 'bg-blue-500 text-white' : 'bg-white'}`}>
+                            <p className="text-xs font-bold mb-1">{comment.author}</p>
+                            <p className="text-sm">{comment.text}</p>
+                            <p className={`text-xs mt-1 opacity-70 ${comment.authorId === loggedInUser.uid ? 'text-right' : 'text-left'}`}>
+                                {comment.createdAt?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                        </div>
+                    </div>
+                )) : (
+                    <p className="text-sm text-slate-400 text-center py-4">No messages in this discussion yet.</p>
+                )}
+            </div>
+            <form onSubmit={handleAddComment} className="mt-3 flex gap-2">
+                <input 
+                    type="text" 
+                    value={newComment} 
+                    onChange={e => setNewComment(e.target.value)} 
+                    placeholder="Type a message..." 
+                    className="flex-grow w-full px-4 py-2 border border-slate-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                />
+                <button type="submit" className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors disabled:bg-blue-300" disabled={!newComment.trim()}>
+                    <Send className="w-5 h-5" />
+                </button>
+            </form>
         </div>
     );
 }
@@ -1678,6 +1920,7 @@ function CasesView({ user, userRole, searchTerm, setSearchTerm, clients }) { // 
                 {c.decisionSummary && <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">DECISION SUMMARY</h4><p className="text-sm text-slate-700 bg-amber-50 p-3 rounded-md whitespace-pre-wrap">{c.decisionSummary}</p></div>}
                 {c.attachments && c.attachments.length > 0 && <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">ATTACHMENTS</h4><ul className="space-y-2">{c.attachments.map((att, i) => <li key={i} className="flex items-center justify-between bg-slate-50 p-2 rounded-md"><a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline truncate"><Paperclip className="w-4 h-4" /><span className="truncate">{att.name}</span></a><button onClick={() => handleDeleteAttachment(c.id, c.ownerId, att)} className="p-1 text-slate-400 hover:text-red-600 flex-shrink-0"><X className="w-3 h-3" /></button></li>)}</ul></div>}
                 <Tasks caseId={c.id} caseTitle={c.caseTitle} caseOwnerId={c.ownerId} loggedInUserId={userId} appId={appId} />
+                <CaseDiscussion caseData={c} loggedInUser={user} />
               </div>
               <div className="flex justify-end space-x-2 mt-4">
                 <button onClick={() => handleEditCase(c)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-full"><Edit className="w-4 h-4" /></button>
