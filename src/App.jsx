@@ -55,6 +55,11 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import 'react-toastify/dist/ReactToastify.css';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
+import listPlugin from '@fullcalendar/list'; // Agar list view chahiye
 
 const localizer = momentLocalizer(moment);
 
@@ -80,14 +85,19 @@ window.auth = auth; // <<< YAHAN PAR NAYA CODE ADD KAREIN
 // STEP 1: Yeh poora naya function apni App.jsx file mein kahin bhi add kar den.
 // Yeh naye summary cards ke liye hai.
 // -----------------------------------------------------------------------------
-const DashboardStatCard = ({ icon: Icon, label, value, color }) => {
+const DashboardStatCard = ({ icon: Icon, label, value, color, onClick }) => {
     const colors = {
         blue: 'bg-blue-100 text-blue-600',
         purple: 'bg-purple-100 text-purple-600',
+        green: 'bg-green-100 text-green-600',
+        orange: 'bg-orange-100 text-orange-600',
     };
 
     return (
-        <div className="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+        <button 
+            onClick={onClick} 
+            className="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4 w-full text-left transition-transform duration-200 hover:scale-105 hover:shadow-xl cursor-pointer"
+        >
             <div className={`p-4 rounded-full ${colors[color] || 'bg-slate-100'}`}>
                 <Icon className="w-7 h-7" />
             </div>
@@ -95,9 +105,10 @@ const DashboardStatCard = ({ icon: Icon, label, value, color }) => {
                 <p className="text-sm text-slate-500">{label}</p>
                 <p className="text-2xl font-bold text-slate-800">{value}</p>
             </div>
-        </div>
+        </button>
     );
 };
+
 // STEP 1: Yeh dono naye functions apni App.jsx file mein add kar den.
 // -----------------------------------------------------------------------------
 
@@ -431,6 +442,275 @@ const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm }) => {
         </motion.div>
     );
 }
+function EventEditModal({ isOpen, onClose, onSave, onDelete, eventData }) {
+    // Helper function to safely format date
+    const formatForDateTimeLocal = (date) => {
+        // Check if 'date' is a valid Date object
+        if (date instanceof Date && !isNaN(date)) {
+            return moment(date).format('YYYY-MM-DDTHH:mm');
+        }
+        return ''; // Return empty string for invalid or null/undefined dates
+    };
+
+    // formData state ko initialize karte waqt hi dates ko format karein
+    const [formData, setFormData] = useState(() => ({
+        ...eventData,
+        title: eventData.title || '', // Ensure title is also a string
+        start: formatForDateTimeLocal(eventData.start),
+        end: formatForDateTimeLocal(eventData.end),
+        allDay: eventData.allDay || false // Ensure allDay is boolean
+    }));
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        // Agar eventData change hota hai, toh formData ko dobara update karein
+        setFormData(() => ({
+            ...eventData,
+            title: eventData.title || '',
+            start: formatForDateTimeLocal(eventData.start),
+            end: formatForDateTimeLocal(eventData.end),
+            allDay: eventData.allDay || false
+        }));
+    }, [eventData]);
+
+    const handleChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setFormData(prev => ({ 
+            ...prev, 
+            [name]: type === 'checkbox' ? checked : value 
+        }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        // Dates ko dobara Date objects mein convert karein save karne se pehle
+        const dataToSave = {
+            ...formData,
+            start: formData.start ? new Date(formData.start) : null,
+            end: formData.end ? new Date(formData.end) : null,
+        };
+        await onSave(dataToSave);
+        setLoading(false);
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" 
+            onClick={onClose}
+        >
+            <motion.div 
+                initial={{ scale: 0.9 }} 
+                animate={{ scale: 1 }} 
+                exit={{ scale: 0.9 }} 
+                className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6" 
+                onClick={e => e.stopPropagation()}
+            >
+                <h2 className="text-xl font-bold text-slate-800 mb-4">Edit Calendar Event</h2>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <InputField 
+                        label="Event Title" 
+                        name="title" 
+                        value={formData.title} 
+                        onChange={handleChange} 
+                        required 
+                    />
+                    <InputField 
+                        label="Start Date & Time" 
+                        name="start" 
+                        type="datetime-local" 
+                        value={formData.start} 
+                        onChange={handleChange} 
+                        required 
+                    />
+                    <InputField 
+                        label="End Date & Time" 
+                        name="end" 
+                        type="datetime-local" 
+                        value={formData.end} 
+                        onChange={handleChange} 
+                        required 
+                    />
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            id="allDay"
+                            name="allDay"
+                            checked={formData.allDay}
+                            onChange={(e) => setFormData(prev => ({ ...prev, allDay: e.target.checked }))}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <label htmlFor="allDay" className="text-sm text-slate-600">All Day Event</label>
+                    </div>
+
+                    {eventData.caseId && (
+                        <div className="bg-slate-50 p-3 rounded-lg text-sm text-slate-700">
+                            <p className="font-semibold">Linked Case:</p>
+                            <p>{eventData.caseTitle} (ID: {eventData.caseId})</p>
+                            {/* Agar aap case par click kar ke cases tab par redirect karna chahte hain, toh yahan button add kar sakte hain */}
+                        </div>
+                    )}
+
+                    <div className="flex justify-between items-center pt-4 border-t">
+                        <button 
+                            type="button" 
+                            onClick={() => onDelete(eventData.id)} 
+                            className="bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 font-semibold"
+                        >
+                            Delete Event
+                        </button>
+                        <div className="flex gap-3">
+                            <button 
+                                type="button" 
+                                onClick={onClose} 
+                                className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-200"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="submit" 
+                                disabled={loading} 
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center w-32"
+                            >
+                                {loading ? <Loader2 className="animate-spin"/> : 'Save Changes'}
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </motion.div>
+        </motion.div>
+    );
+}
+function AddEventModal({ isOpen, onClose, onSave, initialData }) {
+    // Helper function to safely format date
+    const formatForDateTimeLocal = (date) => {
+        if (date instanceof Date && !isNaN(date)) {
+            return moment(date).format('YYYY-MM-DDTHH:mm');
+        }
+        return '';
+    };
+
+    const [formData, setFormData] = useState(() => ({
+        title: initialData.title || '',
+        start: formatForDateTimeLocal(initialData.start),
+        end: formatForDateTimeLocal(initialData.end),
+        allDay: initialData.allDay || false,
+        type: initialData.type || 'custom', // Default type for new events
+    }));
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        setFormData(() => ({
+            title: initialData.title || '',
+            start: formatForDateTimeLocal(initialData.start),
+            end: formatForDateTimeLocal(initialData.end),
+            allDay: initialData.allDay || false,
+            type: initialData.type || 'custom',
+        }));
+    }, [initialData]);
+
+    const handleChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setFormData(prev => ({ 
+            ...prev, 
+            [name]: type === 'checkbox' ? checked : value 
+        }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        const dataToSave = {
+            ...formData,
+            start: formData.start ? new Date(formData.start) : null,
+            end: formData.end ? new Date(formData.end) : null,
+        };
+        await onSave(dataToSave);
+        setLoading(false);
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" 
+            onClick={onClose}
+        >
+            <motion.div 
+                initial={{ scale: 0.9 }} 
+                animate={{ scale: 1 }} 
+                exit={{ scale: 0.9 }} 
+                className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6" 
+                onClick={e => e.stopPropagation()}
+            >
+                <h2 className="text-xl font-bold text-slate-800 mb-4">Add New Calendar Event</h2>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <InputField 
+                        label="Event Title" 
+                        name="title" 
+                        value={formData.title} 
+                        onChange={handleChange} 
+                        required 
+                    />
+                    <InputField 
+                        label="Start Date & Time" 
+                        name="start" 
+                        type="datetime-local" 
+                        value={formData.start} 
+                        onChange={handleChange} 
+                        required 
+                    />
+                    <InputField 
+                        label="End Date & Time" 
+                        name="end" 
+                        type="datetime-local" 
+                        value={formData.end} 
+                        onChange={handleChange} 
+                        required 
+                    />
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            id="allDayAdd" // Unique ID
+                            name="allDay"
+                            checked={formData.allDay}
+                            onChange={handleChange}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <label htmlFor="allDayAdd" className="text-sm text-slate-600">All Day Event</label>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-4 border-t">
+                        <button 
+                            type="button" 
+                            onClick={onClose} 
+                            className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-200"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit" 
+                            disabled={loading} 
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center w-32"
+                        >
+                            {loading ? <Loader2 className="animate-spin"/> : 'Add Event'}
+                        </button>
+                    </div>
+                </form>
+            </motion.div>
+        </motion.div>
+    );
+}
+
+
 function AuthScreen() {
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
@@ -1068,17 +1348,131 @@ function CaseManagementSystem({ user, userRole }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [clients, setClients] = useState([]); // <-- Nayi state add karein
 
-  // Clients ki list fetch karne ke liye naya useEffect add karein
-  useEffect(() => {
-    if (userRole === 'admin') {
-        const unsub = onSnapshot(collection(db, "clients"), (snapshot) => {
-            setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-        return () => unsub();
-    }
-  }, [userRole]);
+  // Cases, tasks, events, etc. ke liye states
+  const [cases, setCases] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCase, setEditingCase] = useState(null);
+  const [activeFilter, setActiveFilter] = useState('All'); // <-- activeFilter state yahan hai
+  const [deletingCaseId, setDeletingCaseId] = useState(null);
 
-  // --- ADDED: Logout handler ---
+  const userId = user.uid;
+  const appId = 'default-app-id'; // Assuming this is your appId
+
+  useEffect(() => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const unsubscribes = [];
+    
+    let ownerLoaded = false;
+    let assignedLoaded = false;
+    let usersLoaded = userRole !== 'admin'; // Admin ko users list chahiye, baqiyon ko nahi
+
+    const checkLoadingStatus = () => {
+        if (ownerLoaded && assignedLoaded && usersLoaded) {
+            setLoading(false);
+        }
+    }
+
+    // Admins ke liye saare users ki list fetch karein
+    if (userRole === 'admin') {
+        const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+            setAllUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            usersLoaded = true;
+            checkLoadingStatus();
+        }, (error) => {
+            console.error("Error fetching user list for admin:", error);
+            toast.error("Could not load user list.");
+            usersLoaded = true;
+            checkLoadingStatus();
+        });
+        unsubscribes.push(unsubUsers);
+    }
+
+    // Clients ki list fetch karein (AdminClientManagement aur CaseFormModal ke liye)
+    const unsubClients = onSnapshot(collection(db, "clients"), (snapshot) => {
+        setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+        console.error("Error fetching clients:", error);
+        toast.error("Could not load client list.");
+    });
+    unsubscribes.push(unsubClients);
+
+
+    let ownerCases = [];
+    let assignedCases = [];
+
+    const updateCombinedCases = () => {
+        const combined = [...ownerCases, ...assignedCases];
+        const uniqueCasesMap = new Map();
+        combined.forEach(caseItem => {
+            if (!uniqueCasesMap.has(caseItem.id)) {
+                uniqueCasesMap.set(caseItem.id, caseItem);
+            }
+        });
+        setCases(Array.from(uniqueCasesMap.values()));
+    };
+
+    // Current user ke owned cases fetch karein
+    const ownerCasesRef = collection(db, `artifacts/${appId}/users/${userId}/cases`);
+    const unsubOwner = onSnapshot(ownerCasesRef, (snapshot) => {
+      ownerCases = snapshot.docs.map(doc => ({ id: doc.id, ownerId: userId, ...doc.data() }));
+      ownerLoaded = true;
+      updateCombinedCases();
+      checkLoadingStatus();
+    }, (error) => {
+      console.error("Error fetching owner cases:", error);
+      ownerLoaded = true;
+      checkLoadingStatus();
+    });
+    unsubscribes.push(unsubOwner);
+
+    // Current user ko assigned cases fetch karein
+    const assignedCasesQuery = query(
+        collectionGroup(db, 'cases'), 
+        where('assignedTo', 'array-contains', userId)
+    );
+
+    const unsubAssigned = onSnapshot(assignedCasesQuery, (snapshot) => {
+      const pathSegmentsIndex = 3; // artifacts/appId/users/userId/cases
+      assignedCases = snapshot.docs.map(doc => ({ id: doc.id, ownerId: doc.ref.path.split('/')[pathSegmentsIndex], ...doc.data() }));
+      assignedLoaded = true;
+      updateCombinedCases();
+      checkLoadingStatus();
+    }, (error) => {
+      console.error("Error fetching assigned cases:", error);
+      toast.error("Error fetching assigned cases: " + error.message);
+      assignedLoaded = true;
+      checkLoadingStatus();
+    });
+    unsubscribes.push(unsubAssigned);
+
+    return () => unsubscribes.forEach(unsub => unsub());
+  },[userId, userRole]); 
+
+  // --- allTags calculation ko yahan move kiya gaya hai ---
+  const allTags = useMemo(() => {
+    const collectedTags = new Set();
+    collectedTags.add('All'); // 'All' tag ko hamesha shamil karein
+    
+    cases.forEach(c => {
+        if (Array.isArray(c.tags)) { // Sirf tab proceed karein agar c.tags ek array hai
+            c.tags.forEach(tag => {
+                if (typeof tag === 'string' && tag.trim() !== '') { // Sirf tab add karein agar tag ek non-empty string hai
+                    collectedTags.add(tag.trim());
+                }
+            });
+        }
+    });
+    return Array.from(collectedTags);
+  }, [cases]);
+
+
   const handleLogout = async () => {
     try {
         await signOut(auth);
@@ -1088,6 +1482,209 @@ function CaseManagementSystem({ user, userRole }) {
     }
   };
 
+  const handleAddCase = () => { setEditingCase(null); setIsModalOpen(true); };
+  const handleEditCase = (caseData) => { setEditingCase(caseData); setIsModalOpen(true); };
+  const handleInitiateDelete = (caseId) => { setDeletingCaseId(caseId); };
+
+  const confirmDelete = async () => {
+    if (!deletingCaseId) return;
+    try {
+      const caseToDelete = cases.find(c => c.id === deletingCaseId);
+      if (caseToDelete?.attachments) {
+        for (const attachment of caseToDelete.attachments) {
+          try {
+            await deleteObject(ref(storage, attachment.storagePath));
+          } catch (fileError) {
+            if (fileError.code === 'storage/object-not-found') {
+              console.warn(`File not found, skipping deletion: ${attachment.storagePath}`);
+            } else {
+              console.error(`Error deleting file ${attachment.storagePath}:`, fileError);
+              throw fileError; 
+            }
+          }
+        }
+      }
+      await deleteDoc(doc(db, `artifacts/${appId}/users/${caseToDelete.ownerId}/cases`, deletingCaseId));
+      toast.success('Case file and all attachments deleted!');
+    } catch (error) {
+      console.error("Error deleting case: ", error);
+      toast.error('Failed to delete case file.');
+    }
+    setDeletingCaseId(null);
+  };
+
+  // --- MODIFIED: handleSaveCase to manage calendar events ---
+  const handleSaveCase = async (caseData, fileToUpload, setUploadProgress) => {
+    const casesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/cases`);
+    const eventsCollectionRef = collection(db, `users/${userId}/events`); // Events collection reference
+
+    try {
+        let finalCaseData = { ...caseData };
+        let caseDocRef; // Saved/updated case document ka reference
+
+        // Client creation/linking logic (same as before)
+        if (!caseData.clientId || caseData.clientId === 'new-client') {
+            if (!caseData.clientName.trim()) {
+                toast.error("New Client Full Name is required to create a new client.");
+                return;
+            }
+
+            const findOrCreateClientCallable = httpsCallable(functions, 'findOrCreateClient');
+            const clientResult = await findOrCreateClientCallable({
+                name: caseData.clientName,
+                email: caseData.clientEmail || null,
+                phone: caseData.clientWhatsapp || null
+            });
+            
+            finalCaseData.clientId = clientResult.data.clientId;
+            finalCaseData.clientName = clientResult.data.clientName;
+            finalCaseData.clientEmail = clientResult.data.clientEmail;
+            finalCaseData.clientWhatsapp = clientResult.data.clientPhone;
+            
+            toast.success(`Client "${finalCaseData.clientName}" ${clientResult.data.isNew ? 'created' : 'found'} and linked.`);
+        } else {
+            const selectedClient = clients.find(c => c.id === caseData.clientId);
+            if (selectedClient) {
+                finalCaseData.clientName = selectedClient.name;
+                finalCaseData.clientEmail = selectedClient.email || '';
+                finalCaseData.clientWhatsapp = selectedClient.phone || '';
+            }
+        }
+
+        if (editingCase) {
+            caseDocRef = doc(db, `artifacts/${appId}/users/${userId}/cases`, editingCase.id);
+            await updateDoc(caseDocRef, { ...finalCaseData, updatedAt: serverTimestamp() });
+            // Attachment handling (same as before)
+            if (fileToUpload) {
+                const storagePath = `artifacts/${appId}/users/${userId}/${editingCase.id}/${Date.now()}_${fileToUpload.name}`;
+                const downloadURL = await uploadFile(fileToUpload, storagePath, setUploadProgress);
+                await updateDoc(caseDocRef, { attachments: arrayUnion({ name: fileToUpload.name, url: downloadURL, storagePath }) });
+            }
+            toast.success('Case file updated!');
+        } else {
+            const newCaseData = { ...finalCaseData, attachments: [], createdAt: serverTimestamp() };
+            caseDocRef = await addDoc(casesCollectionRef, newCaseData); // New case ke liye doc ref hasil karein
+            // Attachment handling (same as before)
+            if (fileToUpload) {
+                const storagePath = `artifacts/${appId}/users/${userId}/${caseDocRef.id}/${Date.now()}_${fileToUpload.name}`;
+                const downloadURL = await uploadFile(fileToUpload, storagePath, setUploadProgress);
+                await updateDoc(caseDocRef, { attachments: arrayUnion({ name: fileToUpload.name, url: downloadURL, storagePath }) });
+            }
+            toast.success('Case file added!');
+        }
+
+        // --- Handle Calendar Events for Hearing Dates ---
+        const currentCaseId = caseDocRef.id;
+        const currentCaseTitle = finalCaseData.caseTitle;
+        const oldHearingDates = editingCase ? editingCase.hearingDates || [] : [];
+        const newHearingDates = finalCaseData.hearingDates || [];
+
+        // 1. Un-matched old hearing dates ke events delete karein
+        for (const oldDate of oldHearingDates) {
+            if (!newHearingDates.includes(oldDate)) {
+                const q = query(eventsCollectionRef, 
+                                where('caseId', '==', currentCaseId),
+                                where('start', '==', Timestamp.fromDate(new Date(oldDate))),
+                                where('type', '==', 'hearing') // Sirf hearing type events ko target karein
+                                );
+                const snapshot = await getDocs(q);
+                snapshot.forEach(async (d) => {
+                    await deleteDoc(doc(db, `users/${userId}/events`, d.id));
+                    console.log(`Deleted calendar event for old hearing: ${oldDate}`);
+                });
+            }
+        }
+
+        // 2. Naye/existing hearing dates ke events add/update karein
+        for (const newDate of newHearingDates) {
+            const eventTitle = `Hearing: ${currentCaseTitle}`;
+            const eventData = {
+                title: eventTitle,
+                start: Timestamp.fromDate(new Date(newDate)),
+                end: Timestamp.fromDate(new Date(newDate)), // Full-day event ke liye start aur end date same hoti hai
+                allDay: true,
+                caseId: currentCaseId,
+                caseTitle: currentCaseTitle,
+                type: 'hearing', // Custom type to identify hearing events
+                createdAt: serverTimestamp()
+            };
+
+            // Check karein ke is hearing date ke liye event pehle se mojood hai ya nahi
+            const q = query(eventsCollectionRef, 
+                            where('caseId', '==', currentCaseId),
+                            where('start', '==', Timestamp.fromDate(new Date(newDate))),
+                            where('type', '==', 'hearing')
+                            );
+            const snapshot = await getDocs(q);
+
+            if (snapshot.empty) {
+                // Event mojood nahi hai, naya add karein
+                await addDoc(eventsCollectionRef, eventData);
+                console.log(`Added new calendar event for hearing: ${newDate}`);
+            } else {
+                // Event mojood hai, usay update karein
+                snapshot.forEach(async (d) => {
+                    await updateDoc(doc(db, `users/${userId}/events`, d.id), eventData);
+                    console.log(`Updated calendar event for hearing: ${newDate}`);
+                });
+            }
+        }
+
+        setIsModalOpen(false);
+        setEditingCase(null);
+    } catch (error) {
+        console.error("Error saving case or updating calendar:", error);
+        toast.error('Failed to save case file or update calendar: ' + error.message);
+    }
+  };
+
+  const uploadFile = (file, storagePath, setProgress) => {
+    return new Promise((resolve, reject) => {
+      const storageRef = ref(storage, storagePath);
+      const uploadTask = uploadBytesResumable(storageRef, file);
+      uploadTask.on('state_changed',
+        (snapshot) => setProgress((snapshot.bytesTransferred / snapshot.totalBytes) * 100),
+        (error) => reject(error),
+        async () => resolve(await getDownloadURL(uploadTask.snapshot.ref))
+      );
+    });
+  };
+
+  const handleDeleteAttachment = async (caseId, ownerId, attachment) => {
+    if (!window.confirm(`Are you sure you want to delete the file: ${attachment.name}?`)) return;
+    try {
+      await deleteObject(ref(storage, attachment.storagePath));
+      await updateDoc(doc(db, `artifacts/${appId}/users/${ownerId}/cases`, caseId), { attachments: arrayRemove(attachment) });
+      toast.success("Attachment deleted.");
+    } catch (error) {
+      console.error("Error deleting attachment:", error);
+      toast.error("Failed to delete attachment.");
+    }
+  };
+
+  // --- MODIFIED: filteredCases logic to handle status filters ---
+  const filteredCases = useMemo(() => {
+    return cases.filter(c => {
+      const matchesSearchTerm = searchTerm === '' ||
+        c.clientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.caseTitle?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.caseNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.courtName?.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesFilter = activeFilter === 'All' ||
+                            (activeFilter === 'Active' && c.caseStatus === 'Active') ||
+                            (activeFilter === 'Pending' && (c.caseStatus === 'Pending' || c.caseStatus === 'Appeal')) ||
+                            (activeFilter === 'Decided' && (c.caseStatus === 'Decided' || c.caseStatus === 'Closed')) ||
+                            (c.tags?.includes(activeFilter)); // Also check if activeFilter is a tag
+
+      return matchesSearchTerm && matchesFilter;
+    });
+  }, [cases, searchTerm, activeFilter]);
+
+  if (loading) {
+      return <LoadingScreen message="Loading cases..." />;
+  }
+
   return (
     <>
       <header className="bg-white shadow-md sticky top-0 z-20">
@@ -1095,7 +1692,6 @@ function CaseManagementSystem({ user, userRole }) {
           <div className="flex justify-between items-center py-4">
             <h1 className="text-2xl font-bold text-slate-800">CaseFile Pro</h1>
             <nav className="flex items-center space-x-2">
-               {/* Dashboard, Cases, etc. buttons yahan rahenge */}
                <button onClick={() => setView('dashboard')} className={`px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 ${view === 'dashboard' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}>
                    <Activity className="w-5 h-5" />Dashboard
                </button>
@@ -1126,8 +1722,90 @@ function CaseManagementSystem({ user, userRole }) {
         </div>
       </header>
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-        {view === 'dashboard' && <DashboardView user={user} setView={setView} setSearchTerm={setSearchTerm} />}
-        {view === 'cases' && <CasesView user={user} userRole={userRole} searchTerm={searchTerm} setSearchTerm={setSearchTerm} clients={clients} />}
+        {view === 'dashboard' && <DashboardView user={user} setView={setView} setSearchTerm={setSearchTerm} cases={cases} setActiveFilter={setActiveFilter} />}
+        {view === 'cases' && (
+            <>
+                {/* Search and filter bar for CasesView */}
+                <div className="bg-white p-4 rounded-xl shadow-lg mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="relative w-full sm:w-auto sm:flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                        <input type="text" placeholder="Search by client, title, case no..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div className="flex items-center gap-4 w-full sm:w-auto">
+                        <div className="relative w-full sm:w-48">
+                            <select value={activeFilter} onChange={(e) => setActiveFilter(e.target.value)} className="w-full appearance-none bg-white px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                {allTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
+                        </div>
+                        <button onClick={handleAddCase} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow">
+                            <FilePlus className="w-5 h-5" />
+                            <span className="hidden sm:inline">Add Case</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Cases Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <AnimatePresence>
+                    {filteredCases.length > 0 ? filteredCases.map(c => {
+                        const assignedEmails = (userRole === 'admin' && allUsers.length > 0 && c.assignedTo)
+                        ? c.assignedTo.map(uid => allUsers.find(u => u.id === uid)?.email || 'Unknown').join(', ')
+                        : (c.assignedTo && c.assignedTo.length > 0 ? `${c.assignedTo.length} lawyer(s) assigned` : 'N/A');
+
+                        return (
+                        <motion.div key={c.id} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white rounded-xl shadow-lg p-6 flex flex-col">
+                            <div className="flex-grow">
+                                <div className="flex justify-between items-start mb-2">
+                                <h3 className="font-bold text-lg text-slate-800 pr-2">{c.caseTitle}</h3>
+                                <CaseStatusBadge status={c.caseStatus} />
+                                </div>
+                                <p className="text-sm text-slate-500 mb-4">Case #: {c.caseNumber}</p>
+                                <div className="space-y-3 text-sm text-slate-600 mb-4">
+                                <InfoItem icon={User} label="Client" value={c.clientName} />
+                                <InfoItem icon={CalendarIcon} label="Date Filed" value={c.caseFiledOn ? new Date(c.caseFiledOn).toLocaleDateString() : 'N/A'} />
+                                <InfoItem icon={Users} label="Opposing Party" value={c.opposingParty} />
+                                <InfoItem icon={Briefcase} label="Court" value={c.courtName} />
+                                <InfoItem icon={MapPin} label="File Location" value={c.fileLocation} />
+                                <InfoItem icon={Users} label="Assigned To" value={assignedEmails} />
+                                </div>
+                                <div className="mb-4">
+                                <h4 className="font-semibold text-xs text-slate-500 mb-2">TAGS</h4>
+                                <div className="flex flex-wrap gap-2">{c.tags?.map(tag => <span key={tag} className="text-xs font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded-full">{tag}</span>)}</div>
+                                </div>
+                                <div className="mb-4">
+                                <h4 className="font-semibold text-xs text-slate-500 mb-2">NOTES</h4>
+                                <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded-md whitespace-pre-wrap">{c.notes}</p>
+                                </div>
+                                {c.decisionSummary && <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">DECISION SUMMARY</h4><p className="text-sm text-slate-700 bg-amber-50 p-3 rounded-md whitespace-pre-wrap">{c.decisionSummary}</p></div>}
+                                {c.attachments && c.attachments.length > 0 && <div className="mb-4"><h4 className="font-semibold text-xs text-slate-500 mb-2">ATTACHMENTS</h4><ul className="space-y-2">{c.attachments.map((att, i) => <li key={i} className="flex items-center justify-between bg-slate-50 p-2 rounded-md"><a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline truncate"><Paperclip className="w-4 h-4" /><span className="truncate">{att.name}</span></a><button onClick={() => handleDeleteAttachment(c.id, c.ownerId, att)} className="p-1 text-slate-400 hover:text-red-600 flex-shrink-0"><X className="w-3 h-3" /></button></li>)}</ul></div>}
+                                <Tasks caseId={c.id} caseTitle={c.caseTitle} caseOwnerId={c.ownerId} loggedInUserId={userId} appId={appId} />
+                                <CaseDiscussion caseData={c} loggedInUser={user} />
+                            </div>
+                            <div className="flex justify-end space-x-2 mt-4">
+                                <button onClick={() => handleEditCase(c)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-full"><Edit className="w-4 h-4" /></button>
+                                <button onClick={() => handleInitiateDelete(c.id)} className="p-2 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-full"><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                        </motion.div>
+                        )}) : <div className="col-span-full text-center py-12"><p className="text-slate-500">No case files found. Click 'Add Case' to get started!</p></div>}
+                    </AnimatePresence>
+                </div>
+
+                <AnimatePresence>
+                    {isModalOpen && (
+                        <CaseFormModal 
+                            isOpen={isModalOpen} 
+                            onClose={() => setIsModalOpen(false)} 
+                            onSave={handleSaveCase} 
+                            caseData={editingCase} 
+                            clients={clients} 
+                            allAvailableTags={allTags} // allTags prop yahan pass kiya gaya hai
+                        />
+                    )}
+                </AnimatePresence>
+                <AnimatePresence>{deletingCaseId && <ConfirmDeleteModal isOpen={!!deletingCaseId} onClose={() => setDeletingCaseId(null)} onConfirm={confirmDelete} />}</AnimatePresence>
+            </>
+        )}
         {view === 'calendar' && <CalendarView user={user} />}
         {view === 'invoices' && <InvoicesView user={user} />}
         {view === 'admin' && userRole === 'admin' && <AdminPanel />}
@@ -1136,9 +1814,95 @@ function CaseManagementSystem({ user, userRole }) {
     </>
   );
 }
-function AdminClientManagement({ clients = [] }) { // <-- 'clients' ko prop ke taur par receive karein
-    const [loading, setLoading] = useState(false); // Loading state ko theek karein
-    const [isModalOpen, setIsModalOpen] = useState(false);
+function EditClientModal({ isOpen, onClose, onSave, clientData }) {
+    const [formData, setFormData] = useState(clientData);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        setFormData(clientData);
+    }, [clientData]);
+
+    const handleChange = (e) => {
+        setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        await onSave(formData);
+        setLoading(false);
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="fixed inset-0 bg-black bg-opacity-50 z-40 flex justify-center items-center p-4" 
+            onClick={onClose}
+        >
+            <motion.div 
+                initial={{ scale: 0.9 }} 
+                animate={{ scale: 1 }} 
+                exit={{ scale: 0.9 }} 
+                className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6" 
+                onClick={e => e.stopPropagation()}
+            >
+                <h2 className="text-xl font-bold text-slate-800 mb-4">Edit Client Details</h2>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <InputField 
+                        label="Client Full Name" 
+                        name="name" 
+                        value={formData.name} 
+                        onChange={handleChange} 
+                        required 
+                    />
+                    <InputField 
+                        label="Client Mobile Number" 
+                        name="phone" 
+                        type="tel" 
+                        value={formData.phone || ''} 
+                        onChange={handleChange} 
+                        required={false} 
+                    />
+                    <InputField 
+                        label="Client Email" 
+                        name="email" 
+                        type="email" 
+                        value={formData.email || ''} 
+                        onChange={handleChange} 
+                        required={false} 
+                    />
+                    <div className="flex justify-end gap-3 pt-4">
+                        <button 
+                            type="button" 
+                            onClick={onClose} 
+                            className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-200"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit" 
+                            disabled={loading} 
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center w-32"
+                        >
+                            {loading ? <Loader2 className="animate-spin"/> : 'Save Changes'}
+                        </button>
+                    </div>
+                </form>
+            </motion.div>
+        </motion.div>
+    );
+}
+
+function AdminClientManagement({ clients = [] }) {
+    const [loading, setLoading] = useState(false);
+    const [isModalOpen, setIsModalOpen] = useState(false); // For Add Client Modal
+    const [isEditClientModalOpen, setIsEditClientModalOpen] = useState(false); // For Edit Client Modal
+    const [editingClient, setEditingClient] = useState(null); // Client data being edited
+
     const [newClientName, setNewClientName] = useState('');
     const [newClientPhone, setNewClientPhone] = useState('');
     const [newClientPassword, setNewClientPassword] = useState('');
@@ -1146,14 +1910,18 @@ function AdminClientManagement({ clients = [] }) { // <-- 'clients' ko prop ke t
 
     const handleAddClient = async (e) => {
         e.preventDefault();
-        if (!newClientName || !newClientPhone || !newClientPassword) {
-            toast.error("All fields are required.");
+        if (!newClientName.trim()) {
+            toast.error("Client Full Name is required.");
             return;
         }
         setIsSubmitting(true);
         const addClient = httpsCallable(functions, 'createClientUser');
         try {
-            const result = await addClient({ name: newClientName, phone: newClientPhone, password: newClientPassword });
+            const result = await addClient({
+                name: newClientName,
+                phone: newClientPhone.trim() === '' ? null : newClientPhone,
+                password: newClientPassword.trim() === '' ? null : newClientPassword
+            });
             toast.success(result.data.result);
             setNewClientName('');
             setNewClientPhone('');
@@ -1164,6 +1932,30 @@ function AdminClientManagement({ clients = [] }) { // <-- 'clients' ko prop ke t
             toast.error(error.message);
         }
         setIsSubmitting(false);
+    };
+
+    const handleEditClient = (clientData) => {
+        setEditingClient(clientData);
+        setIsEditClientModalOpen(true);
+    };
+
+    const handleSaveEditedClient = async (updatedClientData) => {
+        setLoading(true);
+        try {
+            const clientDocRef = doc(db, `clients`, updatedClientData.id);
+            await updateDoc(clientDocRef, {
+                name: updatedClientData.name,
+                email: updatedClientData.email || null,
+                phone: updatedClientData.phone || null,
+            });
+            toast.success("Client details updated successfully!");
+            setIsEditClientModalOpen(false);
+            setEditingClient(null);
+        } catch (error) {
+            console.error("Error updating client:", error);
+            toast.error("Failed to update client details.");
+        }
+        setLoading(false);
     };
 
 
@@ -1179,15 +1971,17 @@ function AdminClientManagement({ clients = [] }) { // <-- 'clients' ko prop ke t
                 <table className="min-w-full divide-y divide-slate-200">
                     <thead className="bg-slate-50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Name</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Phone Number</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Name</th><th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Phone Number</th><th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Email</th><th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-slate-200">
                         {clients.map(client => (
                             <tr key={client.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{client.name}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{client.phone}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{client.name}</td><td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{client.phone || 'N/A'}</td><td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{client.email || 'N/A'}</td><td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <button onClick={() => handleEditClient(client)} className="text-blue-600 hover:text-blue-900">
+                                        <Edit className="w-4 h-4" />
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -1200,8 +1994,8 @@ function AdminClientManagement({ clients = [] }) { // <-- 'clients' ko prop ke t
                             <h2 className="text-xl font-bold text-slate-800 mb-4">Add New Client</h2>
                             <form onSubmit={handleAddClient} className="space-y-4">
                                 <InputField label="Client Full Name" value={newClientName} onChange={e => setNewClientName(e.target.value)} required />
-                                <InputField label="Client Mobile Number" type="tel" value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} required />
-                                <InputField label="Set Password" type="text" value={newClientPassword} onChange={e => setNewClientPassword(e.target.value)} required />
+                                <InputField label="Client Mobile Number (Optional)" type="tel" value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} required={false} />
+                                <InputField label="Set Password (Optional)" type="text" value={newClientPassword} onChange={e => setNewClientPassword(e.target.value)} required={false} />
                                 <div className="flex justify-end gap-3 pt-4">
                                     <button type="button" onClick={() => setIsModalOpen(false)} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-200">Cancel</button>
                                     <button type="submit" disabled={isSubmitting} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center w-32">
@@ -1213,9 +2007,25 @@ function AdminClientManagement({ clients = [] }) { // <-- 'clients' ko prop ke t
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* New Edit Client Modal */}
+            <AnimatePresence>
+                {isEditClientModalOpen && editingClient && (
+                    <EditClientModal 
+                        isOpen={isEditClientModalOpen}
+                        onClose={() => setIsEditClientModalOpen(false)}
+                        onSave={handleSaveEditedClient}
+                        clientData={editingClient}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 }
+
+
+
+
 
 function QRCodeModal({ url, clientName, onClose }) {
     const qrCodeRef = React.useRef(null);
@@ -1788,43 +2598,71 @@ function CasesView({ user, userRole, searchTerm, setSearchTerm, clients }) { // 
     setDeletingCaseId(null);
   };
 
-  const handleSaveCase = async (caseData, fileToUpload, setUploadProgress) => {
-    const dataToSave = {
-        ...caseData,
-        hourlyRate: parseFloat(caseData.hourlyRate) || 0,
-        updatedAt: serverTimestamp(),
-        // Ensure createdAt is always present on new cases
-        createdAt: caseData.createdAt || serverTimestamp(),
-    };
-
+  // CaseManagementSystem component ke andar handleSaveCase function
+const handleSaveCase = async (caseData, fileToUpload, setUploadProgress) => {
+    const casesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/cases`);
     try {
-      if (editingCase) {
-        const caseDocRef = doc(db, `artifacts/${appId}/users/${editingCase.ownerId}/cases`, editingCase.id);
-        await updateDoc(caseDocRef, dataToSave);
-        if (fileToUpload) {
-          const storagePath = `artifacts/${appId}/users/${editingCase.ownerId}/${editingCase.id}/${Date.now()}_${fileToUpload.name}`;
-          const downloadURL = await uploadFile(fileToUpload, storagePath, setUploadProgress);
-          await updateDoc(caseDocRef, { attachments: arrayUnion({ name: fileToUpload.name, url: downloadURL, storagePath }) });
+        let finalCaseData = { ...caseData };
+
+        // Agar client ID khali hai ya 'new-client' select kiya gaya hai, toh naya client create karein ya dhundhen
+        if (!caseData.clientId || caseData.clientId === 'new-client') {
+            if (!caseData.clientName.trim()) {
+                toast.error("New Client Full Name is required to create a new client.");
+                return; // Agar naya client name nahi hai toh process rok den
+            }
+
+            // Cloud Function ko call karein client ko dhoondhne ya banane ke liye
+            const findOrCreateClientCallable = httpsCallable(functions, 'findOrCreateClient');
+            const clientResult = await findOrCreateClientCallable({
+                name: caseData.clientName,
+                email: caseData.clientEmail || null,
+                phone: caseData.clientWhatsapp || null
+            });
+            
+            finalCaseData.clientId = clientResult.data.clientId;
+            // clientName, clientEmail, clientWhatsapp ko actual values se update karein
+            finalCaseData.clientName = clientResult.data.clientName;
+            finalCaseData.clientEmail = clientResult.data.clientEmail;
+            finalCaseData.clientWhatsapp = clientResult.data.clientPhone; // Assuming clientPhone is returned
+            
+            toast.success(`Client "${finalCaseData.clientName}" ${clientResult.data.isNew ? 'created' : 'found'} and linked.`);
+        } else {
+            // Existing client use ho raha hai, uski details ko caseData mein daal den
+            const selectedClient = clients.find(c => c.id === caseData.clientId);
+            if (selectedClient) {
+                finalCaseData.clientName = selectedClient.name;
+                finalCaseData.clientEmail = selectedClient.email || '';
+                finalCaseData.clientWhatsapp = selectedClient.phone || '';
+            }
         }
-        toast.success('Case file updated!');
-      } else {
-        const newCaseData = { ...dataToSave, attachments: [], expenses: [], timeLogs: [], ownerId: userId };
-        const casesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/cases`);
-        const newCaseRef = await addDoc(casesCollectionRef, newCaseData);
-        if (fileToUpload) {
-          const storagePath = `artifacts/${appId}/users/${userId}/${newCaseRef.id}/${Date.now()}_${fileToUpload.name}`;
-          const downloadURL = await uploadFile(fileToUpload, storagePath, setUploadProgress);
-          await updateDoc(newCaseRef, { attachments: arrayUnion({ name: fileToUpload.name, url: downloadURL, storagePath }) });
+
+        if (editingCase) {
+            const caseDocRef = doc(db, `artifacts/${appId}/users/${userId}/cases`, editingCase.id);
+            await updateDoc(caseDocRef, { ...finalCaseData, updatedAt: serverTimestamp() }); // updatedAt field add kiya
+            if (fileToUpload) {
+                const storagePath = `artifacts/${appId}/users/${userId}/${editingCase.id}/${Date.now()}_${fileToUpload.name}`;
+                const downloadURL = await uploadFile(fileToUpload, storagePath, setUploadProgress);
+                await updateDoc(caseDocRef, { attachments: arrayUnion({ name: fileToUpload.name, url: downloadURL, storagePath }) });
+            }
+            toast.success('Case file updated!');
+        } else {
+            const newCaseData = { ...finalCaseData, attachments: [], createdAt: serverTimestamp() };
+            const newCaseRef = await addDoc(casesCollectionRef, newCaseData);
+            if (fileToUpload) {
+                const storagePath = `artifacts/${appId}/users/${userId}/${newCaseRef.id}/${Date.now()}_${fileToUpload.name}`;
+                const downloadURL = await uploadFile(fileToUpload, storagePath, setUploadProgress);
+                await updateDoc(newCaseRef, { attachments: arrayUnion({ name: fileToUpload.name, url: downloadURL, storagePath }) });
+            }
+            toast.success('Case file added!');
         }
-        toast.success('Case file added!');
-      }
-      setIsModalOpen(false);
-      setEditingCase(null);
+        setIsModalOpen(false);
+        setEditingCase(null);
     } catch (error) {
-      console.error("Error saving document: ", error);
-      toast.error('Failed to save case file.');
+        console.error("Error saving case: ", error);
+        toast.error('Failed to save case file: ' + error.message);
     }
-  };
+};
+
 
   const uploadFile = (file, storagePath, setProgress) => {
     return new Promise((resolve, reject) => {
@@ -1931,7 +2769,18 @@ function CasesView({ user, userRole, searchTerm, setSearchTerm, clients }) { // 
         </AnimatePresence>
       </div>
 
-      <AnimatePresence>{isModalOpen && <CaseFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveCase} caseData={editingCase} userRole={userRole} allUsers={allUsers} clients={clients} />}</AnimatePresence>
+      <AnimatePresence>
+    {isModalOpen && (
+        <CaseFormModal 
+            isOpen={isModalOpen} 
+            onClose={() => setIsModalOpen(false)} 
+            onSave={handleSaveCase} 
+            caseData={editingCase} 
+            // Nayi prop: clients ki list
+            clients={clients} 
+        />
+    )}
+</AnimatePresence>
       <AnimatePresence>{deletingCaseId && <ConfirmDeleteModal isOpen={!!deletingCaseId} onClose={() => setDeletingCaseId(null)} onConfirm={confirmDelete} />}</AnimatePresence>
     </>
   );
@@ -2014,239 +2863,271 @@ function AdminPanel() {
 }
 
 function CalendarView({ user }) {
-  const [cases, setCases] = useState([]);
-  const [customEvents, setCustomEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isEventModalOpen, setEventModalOpen] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState(null);
-  const [selectedSlot, setSelectedSlot] = useState(null);
-  
-  const userId = user.uid;
+    const [events, setEvents] = useState([]); // For events from users/{userId}/events
+    const [tasks, setTasks] = useState([]);   // For tasks from cases/{caseId}/tasks
+    const [loading, setLoading] = useState(true);
+    const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+    const [selectedEvent, setSelectedEvent] = useState(null); // Woh event jo edit/delete ho raha hai
 
-  useEffect(() => {
-    if (!userId) return;
-    setLoading(true);
-    const casesCollection = collection(db, `artifacts/default-app-id/users/${userId}/cases`);
-    const qCases = query(casesCollection);
-    const unsubCases = onSnapshot(qCases, (snapshot) => {
-      setCases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    const [isAddEventModalOpen, setIsAddEventModalOpen] = useState(false); // Naya event add karne ke liye modal
+    const [newEventDetails, setNewEventDetails] = useState(null); // Naye event ki initial details
 
-    const eventsCollection = collection(db, `users/${userId}/events`);
-    const qEvents = query(eventsCollection);
-    const unsubEvents = onSnapshot(qEvents, (snapshot) => {
-        setCustomEvents(snapshot.docs.map(doc => ({...doc.data(), id: doc.id, start: doc.data().start.toDate(), end: doc.data().end.toDate() })));
-        setLoading(false);
-    });
-
-    return () => {
-        unsubCases();
-        unsubEvents();
-    };
-  }, [userId]);
-
-  const allEvents = useMemo(() => {
-    const hearingEvents = cases.flatMap(c => 
-      (c.hearingDates || []).map(date => ({
-        id: `${c.id}-${date}`,
-        title: `Hearing: ${c.caseTitle}`,
-        start: moment(date).startOf('day').toDate(),
-        end: moment(date).startOf('day').toDate(),
-        allDay: true,
-        isHearing: true,
-      }))
-    );
-    const formattedCustomEvents = customEvents.map(e => ({...e, isHearing: false}));
-    return [...hearingEvents, ...formattedCustomEvents];
-  }, [cases, customEvents]);
-  
-  const handleSelectSlot = useCallback(({ start, end }) => {
-    setSelectedSlot({ start, end });
-    setSelectedEvent(null);
-    setEventModalOpen(true);
-  }, []);
-
-  const handleSelectEvent = useCallback((event) => {
-    if (event.isHearing) {
-        toast.info("Case hearings cannot be edited from the calendar.");
-        return;
-    }
-    setSelectedSlot(null);
-    setSelectedEvent(event);
-    setEventModalOpen(true);
-  }, []);
-
-  const handleSaveEvent = async (eventData) => {
-    const eventsCollectionRef = collection(db, `users/${userId}/events`);
-    const { id, ...dataToSave } = eventData;
-    dataToSave.start = Timestamp.fromDate(new Date(dataToSave.start));
-    dataToSave.end = Timestamp.fromDate(new Date(dataToSave.end));
-
-    try {
-        if (id) {
-            await updateDoc(doc(db, `users/${userId}/events`, id), dataToSave);
-            toast.success("Appointment updated!");
-        } else {
-            await addDoc(eventsCollectionRef, dataToSave);
-            toast.success("Appointment added!");
-        }
-        setEventModalOpen(false);
-    } catch (error) {
-        console.error("Error saving event: ", error);
-        toast.error("Failed to save appointment.");
-    }
-  };
-
-  const handleDeleteEvent = async (eventId) => {
-      if (!eventId || !window.confirm("Are you sure you want to delete this appointment?")) return;
-      try {
-          await deleteDoc(doc(db, `users/${userId}/events`, eventId));
-          toast.success("Appointment deleted.");
-          setEventModalOpen(false);
-      } catch (error) {
-          console.error("Error deleting event: ", error);
-          toast.error("Failed to delete appointment.");
-      }
-  };
-
-  const eventStyleGetter = (event) => ({
-    style: {
-      backgroundColor: event.isHearing ? '#3b82f6' : (event.completed ? '#a78bfa' : '#8b5cf6'),
-      borderRadius: '5px',
-      opacity: 0.8,
-      color: 'white',
-      border: '0px',
-      display: 'block',
-      textDecoration: event.completed ? 'line-through' : 'none',
-    }
-  });
-
-  if (loading) {
-    return <LoadingScreen message="Loading calendar events..." />;
-  }
-
-  return (
-    <div className="bg-white p-4 sm:p-6 rounded-xl shadow-lg h-[80vh]">
-      <Calendar
-        localizer={localizer}
-        events={allEvents}
-        startAccessor="start"
-        endAccessor="end"
-        style={{ height: '100%' }}
-        selectable
-        onSelectSlot={handleSelectSlot}
-        onSelectEvent={handleSelectEvent}
-        eventPropGetter={eventStyleGetter}
-      />
-      <AnimatePresence>
-        {isEventModalOpen && (
-            <EventModal 
-                isOpen={isEventModalOpen} 
-                onClose={() => setEventModalOpen(false)}
-                onSave={handleSaveEvent}
-                onDelete={handleDeleteEvent}
-                eventData={selectedEvent}
-                slotInfo={selectedSlot}
-            />
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function EventModal({ isOpen, onClose, onSave, onDelete, eventData, slotInfo }) {
-    const [formData, setFormData] = useState({
-        title: '',
-        note: '',
-        start: '',
-        end: '',
-        completed: false,
-        notify: false,
-        notifyEmail: '',
-        notifyWhatsApp: '',
-    });
+    const userId = user.uid;
+    const appId = 'default-app-id'; // Assuming this is your appId
 
     useEffect(() => {
-        const getInitialData = () => {
-            if (eventData) {
-                return {
-                    title: eventData.title || '',
-                    note: eventData.note || '',
-                    start: moment(eventData.start).format('YYYY-MM-DDTHH:mm'),
-                    end: moment(eventData.end).format('YYYY-MM-DDTHH:mm'),
-                    completed: eventData.completed || false,
-                    notify: eventData.notify || false,
-                    notifyEmail: eventData.notifyEmail || '',
-                    notifyWhatsApp: eventData.notifyWhatsApp || '',
-                };
+        if (!userId) {
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+        const unsubscribes = [];
+        let eventsLoaded = false, tasksLoaded = false;
+
+        const checkLoading = () => {
+            if (eventsLoaded && tasksLoaded) {
+                setLoading(false);
             }
-            if (slotInfo) {
-                return {
-                    title: '',
-                    note: '',
-                    start: moment(slotInfo.start).format('YYYY-MM-DDTHH:mm'),
-                    end: moment(slotInfo.end).format('YYYY-MM-DDTHH:mm'),
-                    completed: false,
-                    notify: false,
-                    notifyEmail: '',
-                    notifyWhatsApp: '',
-                };
-            }
-            return {};
         };
-        setFormData(getInitialData());
-    }, [eventData, slotInfo]);
 
-    const handleChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+        // Fetch events from users/{userId}/events
+        const eventsCollectionRef = collection(db, `users/${userId}/events`);
+        const unsubEvents = onSnapshot(query(eventsCollectionRef, orderBy('start', 'asc')), (snapshot) => {
+            setEvents(snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                start: doc.data().start.toDate(),
+                end: doc.data().end.toDate(),
+            })));
+            eventsLoaded = true;
+            checkLoading();
+        }, (error) => {
+            console.error("Error fetching calendar events:", error);
+            toast.error("Could not load calendar events.");
+            eventsLoaded = true;
+            checkLoading();
+        });
+        unsubscribes.push(unsubEvents);
+
+        // Fetch all tasks using collectionGroup
+        const tasksCollectionGroupRef = collectionGroup(db, 'tasks');
+        const unsubTasks = onSnapshot(tasksCollectionGroupRef, (snapshot) => {
+            setTasks(snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                dueDate: doc.data().dueDate?.toDate(), // Convert Timestamp to Date
+                // caseId aur caseTitle ko extendedProps mein shamil karne ke liye
+                caseId: doc.ref.parent.parent.id, // tasks collection ka parent case document id hai
+                caseTitle: doc.data().caseTitle || 'N/A', // Agar task mein caseTitle nahi hai
+            })));
+            tasksLoaded = true;
+            checkLoading();
+        }, (error) => {
+            console.error("Error fetching tasks for calendar:", error);
+            toast.error("Could not load tasks for calendar.");
+            tasksLoaded = true;
+            checkLoading();
+        });
+        unsubscribes.push(unsubTasks);
+
+        return () => unsubscribes.forEach(unsub => unsub());
+    }, [userId]);
+
+    const handleEventClick = (clickInfo) => {
+        setSelectedEvent({
+            id: clickInfo.event.id,
+            title: clickInfo.event.title,
+            start: clickInfo.event.start,
+            end: clickInfo.event.end,
+            allDay: clickInfo.event.allDay,
+            caseId: clickInfo.event.extendedProps.caseId,
+            caseTitle: clickInfo.event.extendedProps.caseTitle,
+            type: clickInfo.event.extendedProps.type,
+        });
+        setIsEventModalOpen(true);
     };
 
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        onSave({ id: eventData?.id, ...formData });
+    const handleEventSave = async (updatedEvent) => {
+        setLoading(true);
+        try {
+            const eventDocRef = doc(db, `users/${userId}/events`, updatedEvent.id);
+            await updateDoc(eventDocRef, {
+                title: updatedEvent.title,
+                start: Timestamp.fromDate(new Date(updatedEvent.start)),
+                end: Timestamp.fromDate(new Date(updatedEvent.end)),
+                allDay: updatedEvent.allDay,
+            });
+            toast.success("Event updated successfully!");
+            setIsEventModalOpen(false);
+            setSelectedEvent(null);
+        } catch (error) {
+            console.error("Error updating event:", error);
+            toast.error("Failed to update event.");
+        }
+        setLoading(false);
     };
+
+    const handleEventDelete = async (eventId) => {
+        if (!window.confirm("Are you sure you want to delete this event?")) return;
+        setLoading(true);
+        try {
+            await deleteDoc(doc(db, `users/${userId}/events`, eventId));
+            toast.success("Event deleted successfully!");
+            setIsEventModalOpen(false);
+            setSelectedEvent(null);
+        } catch (error) {
+            console.error("Error deleting event:", error);
+            toast.error("Failed to delete event.");
+        }
+        setLoading(false);
+    };
+
+    // Naya function: Calendar par date/time click hone par
+    const handleDateClick = (info) => {
+        setNewEventDetails({
+            title: '',
+            start: info.date, // Clicked date/time
+            end: info.date,   // Default end date/time
+            allDay: info.allDay,
+            type: 'custom', // Default type for custom events
+        });
+        setIsAddEventModalOpen(true);
+    };
+
+    // Naya function: Naya event save karna
+    const handleAddEventSave = async (newEvent) => {
+        setLoading(true);
+        try {
+            const eventsCollectionRef = collection(db, `users/${userId}/events`);
+            await addDoc(eventsCollectionRef, {
+                title: newEvent.title,
+                start: Timestamp.fromDate(new Date(newEvent.start)),
+                end: Timestamp.fromDate(new Date(newEvent.end)),
+                allDay: newEvent.allDay,
+                type: newEvent.type, // 'custom' ya koi aur type
+                createdAt: serverTimestamp(),
+            });
+            toast.success("New event added successfully!");
+            setIsAddEventModalOpen(false);
+            setNewEventDetails(null);
+        } catch (error) {
+            console.error("Error adding event:", error);
+            toast.error("Failed to add event.");
+        }
+        setLoading(false);
+    };
+
+    // Events aur Tasks ko FullCalendar format mein combine karein
+    const allCalendarEvents = useMemo(() => {
+        const combined = [];
+
+        // Hearing Events
+        events.forEach(event => {
+            combined.push({
+                id: event.id,
+                title: event.title,
+                start: event.start,
+                end: event.end,
+                allDay: event.allDay,
+                extendedProps: {
+                    caseId: event.caseId,
+                    caseTitle: event.caseTitle,
+                    type: event.type,
+                },
+                color: event.type === 'hearing' ? '#3b82f6' : '#8b5cf6', // Blue for hearings, purple for others
+            });
+        });
+
+        // Tasks as Calendar Events
+        tasks.forEach(task => {
+            // Tasks ko FullCalendar event format mein map karein
+            // Agar task ka dueDate hai toh use event ki start date banayein
+            if (task.dueDate) {
+                const taskStart = moment(task.dueDate);
+                if (task.dueTime) {
+                    const [hours, minutes] = task.dueTime.split(':');
+                    taskStart.hour(parseInt(hours)).minute(parseInt(minutes));
+                }
+                
+                combined.push({
+                    id: task.id, // Task ID
+                    title: `Task: ${task.title} (Case: ${task.caseTitle})`,
+                    start: taskStart.toDate(),
+                    end: taskStart.toDate(), // Task usually has a single due point
+                    allDay: !task.dueTime, // Agar time nahi hai toh allDay
+                    extendedProps: {
+                        caseId: task.caseId,
+                        caseTitle: task.caseTitle,
+                        type: 'task', // Custom type 'task'
+                        status: task.status,
+                    },
+                    color: task.status === 'Completed' ? '#a3a3a3' : '#FFBB28', // Grey for completed, orange for pending
+                    display: task.status === 'Completed' ? 'background' : 'auto', // Completed tasks ko background event ke taur par dikha sakte hain
+                });
+            }
+        });
+
+        return combined;
+    }, [events, tasks]);
+
+
+    if (loading) {
+        return <LoadingScreen message="Loading calendar..." />;
+    }
 
     return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-50 z-40 flex justify-center items-center p-4">
-            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
-                <h2 className="text-xl font-bold text-slate-800 mb-4">{eventData ? 'Edit Appointment' : 'Add Appointment'}</h2>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <InputField label="Title" name="title" value={formData.title} onChange={handleChange} required />
-                    <TextAreaField label="Note" name="note" value={formData.note} onChange={handleChange} />
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <InputField label="Start Time" name="start" type="datetime-local" value={formData.start} onChange={handleChange} required />
-                        <InputField label="End Time" name="end" type="datetime-local" value={formData.end} onChange={handleChange} required />
-                    </div>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <InputField label="Email to Notify" name="notifyEmail" type="email" value={formData.notifyEmail} onChange={handleChange} />
-                        <InputField label="WhatsApp to Notify" name="notifyWhatsApp" value={formData.notifyWhatsApp} onChange={handleChange} />
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <CheckboxField label="Completed" name="completed" checked={formData.completed} onChange={handleChange} />
-                        <CheckboxField label="Notify" name="notify" checked={formData.notify} onChange={handleChange} />
-                    </div>
-                    <div className="flex justify-between items-center pt-4">
-                        <div>
-                            {eventData && (
-                                <button type="button" onClick={() => onDelete(eventData.id)} className="text-red-600 hover:text-red-800 font-semibold">Delete</button>
-                            )}
-                        </div>
-                        <div className="flex gap-3">
-                            <button type="button" onClick={onClose} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-200">Cancel</button>
-                            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Save</button>
-                        </div>
-                    </div>
-                </form>
-            </motion.div>
-        </motion.div>
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+            <h2 className="text-2xl font-bold text-slate-700 mb-6">Calendar & Hearings</h2>
+            <FullCalendar
+                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin]}
+                headerToolbar={{
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+                }}
+                initialView="dayGridMonth"
+                editable={true}
+                selectable={true}
+                selectMirror={true}
+                dayMaxEvents={true}
+                weekends={true}
+                events={allCalendarEvents} // Combined events aur tasks
+                eventClick={handleEventClick}
+                dateClick={handleDateClick} // Date click handler add kiya
+                select={(info) => handleDateClick(info)} // Date range selection ke liye bhi
+            />
+
+            <AnimatePresence>
+                {isEventModalOpen && selectedEvent && (
+                    <EventEditModal
+                        isOpen={isEventModalOpen}
+                        onClose={() => setIsEventModalOpen(false)}
+                        onSave={handleEventSave}
+                        onDelete={handleEventDelete}
+                        eventData={selectedEvent}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* Naya Add Event Modal */}
+            <AnimatePresence>
+                {isAddEventModalOpen && newEventDetails && (
+                    <AddEventModal
+                        isOpen={isAddEventModalOpen}
+                        onClose={() => setIsAddEventModalOpen(false)}
+                        onSave={handleAddEventSave}
+                        initialData={newEventDetails}
+                    />
+                )}
+            </AnimatePresence>
+        </div>
     );
 }
 
 
 // --- Main Dashboard View Component ---
-function DashboardView({ user, setView, setSearchTerm }) {
-    const [cases, setCases] = useState([]);
+function DashboardView({ user, setView, setSearchTerm, cases, setActiveFilter }) { // setActiveFilter prop yahan receive karein
     const [tasks, setTasks] = useState([]);
     const [events, setEvents] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -2255,19 +3136,13 @@ function DashboardView({ user, setView, setSearchTerm }) {
     useEffect(() => {
         if (!userId) return;
         setLoading(true);
-        let casesLoaded = false, tasksLoaded = false, eventsLoaded = false;
+        let tasksLoaded = false, eventsLoaded = false;
         
         const checkLoading = () => {
-            if (casesLoaded && tasksLoaded && eventsLoaded) {
+            if (tasksLoaded && eventsLoaded) {
                 setLoading(false);
             }
         };
-
-        const qCases = query(collection(db, `artifacts/default-app-id/users/${userId}/cases`), orderBy("updatedAt", "desc"));
-        const unsubCases = onSnapshot(qCases, (snapshot) => {
-            setCases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), updatedAt: doc.data().updatedAt?.toDate() })));
-            casesLoaded = true; checkLoading();
-        }, (err) => { console.error("Error fetching cases:", err); toast.error("Could not load cases."); });
 
         const qTasks = query(collectionGroup(db, 'tasks'), where('assignedTo', '==', userId));
         const unsubTasks = onSnapshot(qTasks, (snapshot) => {
@@ -2281,8 +3156,29 @@ function DashboardView({ user, setView, setSearchTerm }) {
             eventsLoaded = true; checkLoading();
         }, (err) => { console.error("Error fetching events:", err); toast.error("Could not load events."); });
 
-        return () => { unsubCases(); unsubTasks(); unsubEvents(); };
-    }, [userId]);
+        if (cases) { // Jab cases data mil gaya hai
+            setLoading(false);
+        }
+
+        return () => { unsubTasks(); unsubEvents(); };
+    }, [userId, cases]);
+
+    // Cases Summary ki calculation ko theek kiya gaya hai
+    const caseSummary = useMemo(() => {
+        const total = cases.length;
+        const active = cases.filter(c => c.caseStatus === 'Active').length;
+        const pending = cases.filter(c => c.caseStatus === 'Pending' || c.caseStatus === 'Appeal').length; // Explicitly count Pending and Appeal
+        const completed = cases.filter(c => ['Decided', 'Closed'].includes(c.caseStatus)).length;
+
+        return { total, active, pending, completed };
+    }, [cases]);
+
+    // Click handlers for case summary cards
+    const handleCaseSummaryClick = (filterStatus) => {
+        setSearchTerm(''); // Clear any existing search term
+        setActiveFilter(filterStatus); // Filter apply karein
+        setView('cases'); // Cases view par switch karein
+    };
 
     if (loading) {
         return <LoadingScreen message="Loading dashboard..." />;
@@ -2290,6 +3186,18 @@ function DashboardView({ user, setView, setSearchTerm }) {
 
     return (
         <div className="space-y-8">
+            {/* New Cases Summary Section */}
+            <div className="bg-white p-6 rounded-xl shadow-lg">
+                <h2 className="text-xl font-bold text-slate-700 mb-4">Cases Summary</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <DashboardStatCard icon={Briefcase} label="Total Cases" value={caseSummary.total} color="blue" onClick={() => handleCaseSummaryClick('All')} />
+                    <DashboardStatCard icon={Activity} label="Active Cases" value={caseSummary.active} color="green" onClick={() => handleCaseSummaryClick('Active')} />
+                    <DashboardStatCard icon={Clock} label="Pending Cases" value={caseSummary.pending} color="orange" onClick={() => handleCaseSummaryClick('Pending')} />
+                    <DashboardStatCard icon={CheckCircle2} label="Completed Cases" value={caseSummary.completed} color="purple" onClick={() => handleCaseSummaryClick('Decided')} /> {/* 'Decided' status use karein */}
+                </div>
+            </div>
+            {/* End New Cases Summary Section */}
+
             <MyTasksSummary tasks={tasks} setView={setView} />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2">
@@ -2307,6 +3215,8 @@ function DashboardView({ user, setView, setSearchTerm }) {
         </div>
     );
 }
+
+
 
 // --- MODIFIED: Dashboard Widgets now accept `setView` for navigation ---
 
@@ -2520,13 +3430,15 @@ const CaseDistributionChart = ({ cases, setView, setSearchTerm }) => {
 
 const iconMap = {
     Briefcase,
-    Activity,
+    Activity, // Already present, but confirming
     Archive,
     Calendar: CalendarIcon,
     Clock,
     ListTodo,
-    Inbox
+    Inbox,
+    CheckCircle2, // Added for Completed Cases
 };
+
 
 const StatCard = ({ iconName, title, value, color }) => {
     const colors = {
@@ -2556,231 +3468,210 @@ const StatCard = ({ iconName, title, value, color }) => {
 // --- CaseFormModal Component (Updated) ---
 // Is poore function ko apni App.jsx file ke CaseFormModal function se replace karein.
 // ----------------------------------------------------------------------------------
-function CaseFormModal({ isOpen, onClose, onSave, caseData, userRole, allUsers, clients = [] }) { // <-- 'clients' ko prop ke taur par receive karein
-    const initialFormState = { clientName: '', clientId: '', clientAddress: '', clientContact: '', clientEmail: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '', hourlyRate: 0, expenses: [], assignedTo: [], allowAssignedToEdit: false };
-    const [formData, setFormData] = useState(initialFormState);
-    const [newDate, setNewDate] = useState('');
-    const [newTag, setNewTag] = useState('');
-    const [newExpense, setNewExpense] = useState({ description: '', amount: '' });
-    const [fileToUpload, setFileToUpload] = useState(null);
-    const [uploadProgress, setUploadProgress] = useState(0);
-    const [loading, setLoading] = useState(false);
-
-    // DEBUGGING: Yeh line aapko console mein user ka role batayegi.
-    console.log("CaseFormModal loaded. Current user role is:", userRole);
-
-    useEffect(() => {
-        if (caseData) {
-            setFormData({ ...initialFormState, ...caseData });
-        } else {
-            setFormData(initialFormState);
-        }
-        setFileToUpload(null);
-        setUploadProgress(0);
-    }, [caseData, isOpen]);
-
-    const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    const handleFileChange = (e) => { if (e.target.files[0]) setFileToUpload(e.target.files[0]); };
-    const handleAddDate = () => { if (newDate && !formData.hearingDates.includes(newDate)) { setFormData(prev => ({ ...prev, hearingDates: [...prev.hearingDates, newDate].sort() })); setNewDate(''); } };
-    const handleRemoveDate = (dateToRemove) => setFormData(prev => ({ ...prev, hearingDates: prev.hearingDates.filter(d => d !== dateToRemove) }));
-    const handleAddTag = () => { if (newTag && !formData.tags.includes(newTag.trim())) { setFormData(prev => ({ ...prev, tags: [...prev.tags, newTag.trim()] })); setNewTag(''); } };
-    const handleRemoveTag = (tagToRemove) => setFormData(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tagToRemove) }));
+function CaseFormModal({ isOpen, onClose, onSave, caseData, clients, allAvailableTags = [] }) { // allAvailableTags ko default empty array diya
+    const initial = { clientId: '', clientName: '', clientEmail: '', clientWhatsapp: '', caseTitle: '', courtName: '', caseNumber: '', hearingDates: [], opposingParty: '', fileLocation: '', tags: [], notes: '', attachments: [], caseStatus: 'Active', caseFiledOn: '', decisionSummary: '' }; 
+    const [formData, setFormData] = useState(initial); 
+    const [newDate, setNewDate] = useState(''); 
+    const [newTag, setNewTag] = useState(''); 
+    const [fileToUpload, setFileToUpload] = useState(null); 
+    const [uploadProgress, setUploadProgress] = useState(0); 
+    const [loading, setLoading] = useState(false); 
     
-    const handleAddExpense = () => {
-        if (newExpense.description && newExpense.amount) {
-            const amount = parseFloat(newExpense.amount);
-            if (!isNaN(amount)) {
-                setFormData(prev => ({ ...prev, expenses: [...(prev.expenses || []), { ...newExpense, amount }] }));
-                setNewExpense({ description: '', amount: '' });
-            } else {
-                toast.error("Please enter a valid amount for the expense.");
-            }
+    useEffect(() => { 
+        if (caseData) {
+            setFormData({ ...initial, ...caseData }); 
+        } else {
+            setFormData(initial);
         }
+        setFileToUpload(null); 
+        setUploadProgress(0); 
+    }, [caseData, isOpen]); 
+    
+    const handleChange = (e) => setFormData(p => ({ ...p, [e.target.name]: e.target.value })); 
+    const handleFileChange = (e) => { if (e.target.files[0]) setFileToUpload(e.target.files[0]); }; 
+    const handleAddDate = () => { if (newDate && !formData.hearingDates.includes(newDate)) { setFormData(p => ({ ...p, hearingDates: [...p.hearingDates, newDate].sort() })); setNewDate(''); } }; 
+    const handleRemoveDate = (d) => setFormData(p => ({ ...p, hearingDates: p.hearingDates.filter(date => date !== d) })); 
+    
+    const handleTagCheckboxChange = (tag) => {
+        setFormData(prev => {
+            const currentTags = prev.tags || [];
+            if (currentTags.includes(tag)) {
+                return { ...prev, tags: currentTags.filter(t => t !== tag) };
+            } else {
+                return { ...prev, tags: [...currentTags, tag] };
+            }
+        });
     };
 
-    const handleRemoveExpense = (indexToRemove) => {
-        setFormData(prev => ({
-            ...prev,
-            expenses: prev.expenses.filter((_, index) => index !== indexToRemove)
-        }));
-    };
+    const handleAddTag = () => { 
+        if (newTag.trim() && !formData.tags.includes(newTag.trim())) { 
+            setFormData(p => ({ ...p, tags: [...p.tags, newTag.trim()] })); 
+            setNewTag(''); 
+        } 
+    }; 
+    const handleRemoveTag = (t) => setFormData(p => ({ ...p, tags: p.tags.filter(tag => tag !== t) })); 
+    const handleSubmit = async (e) => { e.preventDefault(); setLoading(true); await onSave(formData, fileToUpload, setUploadProgress); setLoading(false); }; 
+    
+    return (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-50 z-30 flex justify-center items-center p-4" onClick={onClose}>
+        <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b flex justify-between items-center">
+                <h2 className="text-xl font-bold text-slate-800">{caseData ? 'Edit Case File' : 'Add New Case File'}</h2>
+                <button onClick={onClose} className="p-1 rounded-full text-slate-500 hover:bg-slate-200"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4">
+                {/* Client Information Section */}
+                <h3 className="text-lg font-semibold text-slate-700 border-b pb-2">Client Information</h3>
+                <div>
+                    <label htmlFor="clientIdSelect" className="block text-sm font-medium text-slate-600 mb-1">
+                        Select Existing Client or Add New
+                    </label>
+                    <select
+                        id="clientIdSelect"
+                        name="clientId" // Name attribute for form data
+                        value={formData.clientId || ''} // Use formData.clientId
+                        onChange={(e) => {
+                            const selectedClientId = e.target.value;
+                            const selectedClient = clients.find(c => c.id === selectedClientId);
 
-    const handleSubmit = async (e) => { e.preventDefault(); setLoading(true); await onSave(formData, fileToUpload, setUploadProgress); setLoading(false); };
-
-    return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-50 z-30 flex justify-center items-center p-4" onClick={onClose}>
-            <motion.div initial={{ scale: 0.9, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: -20 }} className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                <div className="p-6 border-b border-slate-200 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-slate-800">{caseData ? 'Edit Case File' : 'Add New Case File'}</h2>
-                    <button onClick={onClose} className="p-1 rounded-full text-slate-500 hover:bg-slate-200"><X className="w-5 h-5" /></button>
+                            // Update formData based on selection
+                            setFormData(prev => ({
+                                ...prev,
+                                clientId: selectedClientId,
+                                clientName: selectedClient ? selectedClient.name : '',
+                                clientEmail: selectedClient ? selectedClient.email || '' : '',
+                                clientWhatsapp: selectedClient ? selectedClient.phone || '' : '', // Assuming 'phone' is client's WhatsApp
+                            }));
+                        }}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        <option value="">-- Select an Existing Client --</option>
+                        {clients.map(client => (
+                            <option key={client.id} value={client.id}>
+                                {client.name} {client.phone ? `(${client.phone})` : ''}
+                            </option>
+                        ))}
+                        <option value="new-client">-- Add New Client --</option>
+                    </select>
                 </div>
-                <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-4">
-                    <h3 className="text-lg font-semibold text-slate-700 border-b pb-2">Client Information</h3>
-                    {userRole === 'admin' ? (
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 mb-1">Assign to Client</label>
-                            <select 
-                                name="clientId" 
-                                value={formData.clientId || ''} 
-                                onChange={(e) => {
-                                    const selectedClient = clients.find(c => c.id === e.target.value);
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        clientId: selectedClient ? selectedClient.id : '',
-                                        clientName: selectedClient ? selectedClient.name : '',
-                                        clientEmail: selectedClient ? selectedClient.email : ''
-                                    }));
-                                }}
-                                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                            >
-                                <option value="">Select an existing client</option>
-                                {clients.map(client => ( 
-                                    <option key={client.id} value={client.id}>{client.name} ({client.email})</option>
-                                ))}
-                            </select>
-                        </div>
-                    ) : (
-                        <InputField name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} required />
-                    )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <InputField name="clientEmail" label="Client Email" type="email" value={formData.clientEmail} onChange={handleChange} disabled={userRole === 'admin' && !!formData.clientId} />
-                        <InputField name="clientContact" label="Client Contact Number" value={formData.clientContact} onChange={handleChange} />
-                    </div>
-                    <TextAreaField name="clientAddress" label="Client Address" value={formData.clientAddress} onChange={handleChange} />
 
-                    <h3 className="text-lg font-semibold text-slate-700 border-b pb-2 pt-4">Case Information</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <InputField name="caseTitle" label="Case Title" value={formData.caseTitle} onChange={handleChange} required />
-                        <InputField name="caseNumber" label="Case Number" value={formData.caseNumber} onChange={handleChange} required />
-                        <InputField name="courtName" label="Court Name / Type" value={formData.courtName} onChange={handleChange} required />
-                        <InputField name="opposingParty" label="Opposing Party" value={formData.opposingParty} onChange={handleChange} />
-                        <InputField name="fileLocation" label="Physical File Location" value={formData.fileLocation} onChange={handleChange} />
-                        <InputField name="caseFiledOn" label="Date Case Filed" type="date" value={formData.caseFiledOn} onChange={handleChange} />
-                        <InputField name="hourlyRate" label="Hourly Rate ($)" type="number" value={formData.hourlyRate} onChange={handleChange} />
-                        <div>
-                            <label htmlFor="caseStatus" className="block text-sm font-medium text-slate-600 mb-1">Case Status</label>
-                            <select id="caseStatus" name="caseStatus" value={formData.caseStatus} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option>Active</option><option>Pending</option><option>Appeal</option><option>Decided</option><option>Closed</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    {/* Other sections like Expenses, Hearing Dates, Tags remain the same */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 mb-1">Expenses</label>
-                        <div className="space-y-2">
-                            {formData.expenses?.map((expense, index) => (
-                                <div key={index} className="flex items-center gap-2">
-                                    <span className="flex-grow text-sm p-2 bg-slate-50 rounded-md">{expense.description}: ${parseFloat(expense.amount || 0).toFixed(2)}</span>
-                                    <button type="button" onClick={() => handleRemoveExpense(index)} className="p-1 text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
-                                </div>
-                            ))}
-                        </div>
-                        <div className="flex gap-2 mt-2">
-                            <input type="text" placeholder="Expense Description" value={newExpense.description} onChange={(e) => setNewExpense({...newExpense, description: e.target.value})} className="w-2/3 px-3 py-2 border border-slate-300 rounded-lg" />
-                            <input type="number" placeholder="Amount" value={newExpense.amount} onChange={(e) => setNewExpense({...newExpense, amount: e.target.value})} className="w-1/3 px-3 py-2 border border-slate-300 rounded-lg" />
-                            <button type="button" onClick={handleAddExpense} className="bg-slate-200 text-slate-800 px-4 rounded-lg hover:bg-slate-300">Add</button>
-                        </div>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 mb-1">Hearing Dates</label>
-                        <div className="flex gap-2 mb-2">
-                            <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="flex-grow w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                            <button type="button" onClick={handleAddDate} className="bg-slate-200 text-slate-800 px-4 rounded-lg hover:bg-slate-300">Add</button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">{formData.hearingDates.map(date => <span key={date} className="flex items-center gap-2 bg-slate-100 text-slate-700 text-sm px-2 py-1 rounded-full">{new Date(date).toLocaleDateString()}<button type="button" onClick={() => handleRemoveDate(date)}><X className="w-3 h-3" /></button></span>)}</div>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 mb-1">Tags (e.g., Civil, Criminal)</label>
-                        <div className="flex gap-2 mb-2">
-                            <input type="text" placeholder="Add a tag..." value={newTag} onChange={e => setNewTag(e.target.value)} className="flex-grow w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                            <button type="button" onClick={handleAddTag} className="bg-slate-200 text-slate-800 px-4 rounded-lg hover:bg-slate-300">Add</button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">{formData.tags.map(tag => <span key={tag} className="flex items-center gap-2 bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded-full">{tag}<button type="button" onClick={() => handleRemoveTag(tag)}><X className="w-3 h-3" /></button></span>)}</div>
-                    </div>
-
-                    {/* UPDATED Assigned Lawyers Section */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 mb-1">Assigned Lawyers</label>
-                        {userRole === 'admin' ? (
-                            (allUsers && allUsers.length > 0) ? (
-                                <>
-                                <select
-                                    name="assignedTo"
-                                    multiple
-                                    value={formData.assignedTo} // This is an array of UIDs
-                                    onChange={(e) => {
-                                        const selectedUIDs = Array.from(e.target.selectedOptions).map(opt => opt.value);
-                                        setFormData(prev => ({ ...prev, assignedTo: selectedUIDs }));
-                                    }}
-                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-32"
-                                >
-                                    {allUsers.map(user => (
-                                        <option key={user.id} value={user.id}>
-                                            {user.email} {user.role === 'admin' ? '(Admin)' : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                                <p className="text-xs text-slate-500 mt-1">Hold CTRL/CMD to select multiple.</p>
-                                </>
-                            ) : <p className="text-sm text-slate-500">Loading user list...</p>
-                        ) : (
-                            <div className="p-3 bg-slate-100 rounded-lg text-sm text-slate-700">
-                                {formData.assignedTo && formData.assignedTo.length > 0 
-                                    ? `Assigned to ${formData.assignedTo.length} lawyer(s). (Only admins can change this)`
-                                    : "Not assigned."
-                                }
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div className="mb-4">
-                        <CheckboxField
-                            name="allowAssignedToEdit"
-                            label="Allow assigned lawyers to edit this case"
-                            checked={formData.allowAssignedToEdit}
-                            onChange={(e) => setFormData(prev => ({ ...prev, allowAssignedToEdit: e.target.checked }))}
-                            disabled={userRole !== 'admin'} // Non-admins cannot change this
+                {/* Conditional New Client Fields */}
+                {(formData.clientId === '' || formData.clientId === 'new-client') && (
+                    <>
+                        <InputField 
+                            name="clientName" 
+                            label="New Client Full Name" 
+                            value={formData.clientName} 
+                            onChange={handleChange} 
+                            required 
                         />
-                        <p className="text-xs text-slate-500 mt-1">If checked, lawyers assigned to this case can make changes.</p>
-                    </div>
-                    {/* Notes, Decision Summary, and Attach File sections remain the same */}
+                        <InputField 
+                            name="clientEmail" 
+                            label="New Client Email (Optional)" 
+                            type="email" 
+                            value={formData.clientEmail} 
+                            onChange={handleChange} 
+                            required={false}
+                        />
+                        <InputField 
+                            name="clientWhatsapp" 
+                            label="New Client WhatsApp Number (Optional)" 
+                            type="tel" 
+                            value={formData.clientWhatsapp} 
+                            onChange={handleChange} 
+                            required={false}
+                        />
+                    </>
+                )}
+                
+                {/* Case Information Section */}
+                <h3 className="text-lg font-semibold text-slate-700 border-b pb-2 pt-4">Case Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InputField name="caseTitle" label="Case Title" value={formData.caseTitle} onChange={handleChange} required />
+                    <InputField name="courtName" label="Court Name" value={formData.courtName} onChange={handleChange} required />
+                    <InputField name="caseNumber" label="Case Number" value={formData.caseNumber} onChange={handleChange} required />
+                    <InputField name="opposingParty" label="Opposing Party" value={formData.opposingParty} onChange={handleChange} />
+                    <InputField name="fileLocation" label="File Location" value={formData.fileLocation} onChange={handleChange} />
+                    <InputField name="caseFiledOn" label="Date Filed" type="date" value={formData.caseFiledOn} onChange={handleChange} />
                     <div>
-                        <label htmlFor="notes" className="block text-sm font-medium text-slate-600 mb-1">Notes / Updates</label>
-                        <textarea id="notes" name="notes" rows="4" value={formData.notes} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                        <label htmlFor="caseStatus" className="block text-sm font-medium text-slate-600 mb-1">Case Status</label>
+                        <select id="caseStatus" name="caseStatus" value={formData.caseStatus} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg">
+                            <option>Active</option><option>Pending</option><option>Appeal</option><option>Decided</option><option>Closed</option>
+                        </select>
                     </div>
-                    <div>
-                        <label htmlFor="decisionSummary" className="block text-sm font-medium text-slate-600 mb-1">Decision Summary / Judgment</label>
-                        <textarea id="decisionSummary" name="decisionSummary" rows="4" value={formData.decisionSummary} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium">Hearing Dates</label>
+                    <div className="flex gap-2 mb-2">
+                        <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="flex-grow w-full px-3 py-2 border rounded-lg" />
+                        <button type="button" onClick={handleAddDate} className="bg-slate-200 px-4 rounded-lg">Add</button>
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 mb-1">Attach File</label>
-                        <div className="mt-2 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-md">
-                            <div className="space-y-1 text-center">
-                                <UploadCloud className="mx-auto h-12 w-12 text-slate-400" />
-                                <div className="flex text-sm text-slate-600">
-                                    <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                                        <span>Upload a file</span>
-                                        <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} />
-                                    </label>
-                                    <p className="pl-1">or drag and drop</p>
-                                </div>
-                                {fileToUpload ? <p className="text-sm text-slate-500">{fileToUpload.name}</p> : <p className="text-xs text-slate-500">PDF, PNG, JPG, DOCX up to 10MB</p>}
+                    <div className="flex flex-wrap gap-2">{formData.hearingDates.map(date => <span key={date} className="flex items-center gap-2 bg-slate-100 text-sm px-2 py-1 rounded-full">{new Date(date).toLocaleDateString()}<button type="button" onClick={() => handleRemoveDate(date)}><X className="w-3 h-3" /></button></span>)}</div>
+                </div>
+                {/* Naya Tags Section */}
+                <div>
+                    <label className="block text-sm font-medium mb-2">Tags</label>
+                    {/* Existing Tags as Checkboxes */}
+                    <div className="flex flex-wrap gap-3 mb-3">
+                        {allAvailableTags.filter(tag => tag !== 'All').map(tag => ( // 'All' tag ko filter out karein
+                            <label key={tag} className="inline-flex items-center">
+                                <input
+                                    type="checkbox"
+                                    className="form-checkbox h-4 w-4 text-blue-600 rounded"
+                                    checked={formData.tags.includes(tag)}
+                                    onChange={() => handleTagCheckboxChange(tag)}
+                                />
+                                <span className="ml-2 text-sm text-slate-700">{tag}</span>
+                            </label>
+                        ))}
+                    </div>
+                    {/* Add New Tag input */}
+                    <div className="flex gap-2 mb-2">
+                        <input type="text" placeholder="Add new tag..." value={newTag} onChange={e => setNewTag(e.target.value)} className="flex-grow w-full px-3 py-2 border rounded-lg" />
+                        <button type="button" onClick={handleAddTag} className="bg-slate-200 px-4 rounded-lg">Add</button>
+                    </div>
+                    {/* Currently Selected Tags (from checkboxes or new input) */}
+                    <div className="flex flex-wrap gap-2">
+                        {(formData.tags || []).map(tag => (
+                            <span key={tag} className="flex items-center gap-2 bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded-full">
+                                {tag}
+                                <button type="button" onClick={() => handleRemoveTag(tag)}>
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </span>
+                        ))}
+                    </div>
+                </div>
+                <div>
+                    <label htmlFor="notes" className="block text-sm font-medium">Notes</label>
+                    <textarea id="notes" name="notes" rows="4" value={formData.notes} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg"></textarea>
+                </div>
+                <div>
+                    <label htmlFor="decisionSummary" className="block text-sm font-medium">Decision Summary</label>
+                    <textarea id="decisionSummary" name="decisionSummary" rows="4" value={formData.decisionSummary} onChange={handleChange} className="w-full px-3 py-2 border rounded-lg"></textarea>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium">Attach File</label>
+                    <div className="mt-2 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md">
+                        <div className="space-y-1 text-center">
+                            <UploadCloud className="mx-auto h-12 w-12 text-slate-400" />
+                            <div className="flex text-sm text-slate-600">
+                                <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500"><span>Upload a file</span><input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} /></label><p className="pl-1">or drag and drop</p>
                             </div>
+                            {fileToUpload ? <p className="text-sm">{fileToUpload.name}</p> : <p className="text-xs text-slate-500">PDF, PNG, JPG up to 10MB</p>}
                         </div>
-                        {uploadProgress > 0 && <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2"><div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${uploadProgress}%` }}></div></div>}
                     </div>
-                    <div className="pt-4 border-t border-slate-200 flex justify-end gap-3">
-                        <button type="button" onClick={onClose} className="bg-white text-slate-700 px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50">Cancel</button>
-                        <button type="submit" disabled={loading} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center w-28">
-                            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Case'}
-                        </button>
-                    </div>
-                </form>
-            </motion.div>
+                    {uploadProgress > 0 && <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2"><div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${uploadProgress}%` }}></div></div>}
+                </div>
+                <div className="pt-4 border-t flex justify-end gap-3">
+                    <button type="button" onClick={onClose} className="bg-white px-4 py-2 rounded-lg border">Cancel</button>
+                    <button type="submit" disabled={loading} className="bg-blue-600 text-white px-4 py-2 rounded-lg w-28">{loading ? <Loader2 className="animate-spin" /> : 'Save Case'}</button>
+                </div>
+            </form>
         </motion.div>
-    );
+    </motion.div>); 
 }
+
+
 
 // Is poore function ko App.jsx mein mojood Tasks function se replace karein
 function Tasks({ caseId, caseTitle, caseOwnerId, loggedInUserId, appId }) {
