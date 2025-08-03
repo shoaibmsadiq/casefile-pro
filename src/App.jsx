@@ -169,19 +169,43 @@ function CaseManagementSystem({ user }) {
     const handleAddCase = () => { setEditingCase(null); setIsModalOpen(true); };
     const handleEditCase = (caseData) => { setEditingCase(caseData); setIsModalOpen(true); };
     const handleInitiateDelete = (caseId) => setDeletingCaseId(caseId);
+const confirmDelete = async () => {
+    if (!deletingCaseId) return;
 
-    const confirmDelete = async () => {
-        if (!deletingCaseId) return;
-        try {
-            const caseToDelete = cases.find(c => c.id === deletingCaseId);
-            if (caseToDelete?.attachments) {
-                for (const attachment of caseToDelete.attachments) await deleteObject(ref(storage, attachment.storagePath));
+    try {
+        const caseToDelete = cases.find(c => c.id === deletingCaseId);
+        
+        if (caseToDelete?.attachments) {
+            // Loop ke andar try...catch block lagayenge
+            for (const attachment of caseToDelete.attachments) {
+                try {
+                    await deleteObject(ref(storage, attachment.storagePath));
+                    console.log(`Successfully deleted file: ${attachment.storagePath}`);
+                } catch (fileError) {
+                    // Yahan hum sirf 'storage/object-not-found' error ko ignore karenge
+                    if (fileError.code === 'storage/object-not-found') {
+                        console.warn(`File not found, skipping deletion: ${attachment.storagePath}`);
+                    } else {
+                        // Agar koi aur error hai, to usko throw kar denge
+                        console.error(`Error deleting file ${attachment.storagePath}:`, fileError);
+                        throw fileError; // Taake operation ruk jaye agar koi serious error ho
+                    }
+                }
             }
-            await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/cases`, deletingCaseId));
-            toast.success('Case file and all attachments deleted!');
-        } catch (error) { toast.error('Failed to delete case file.'); }
-        setDeletingCaseId(null);
-    };
+        }
+        
+        // Agar files delete ho gain ya error ignore ho gaya, to database record delete karenge
+        await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/cases`, deletingCaseId));
+        toast.success('Case file and all attachments deleted!');
+
+    } catch (error) {
+        toast.error('Failed to delete case file.');
+        console.error("An error occurred during case deletion:", error);
+    }
+    
+    setDeletingCaseId(null);
+};
+    
 
     const handleSaveCase = async (caseData, fileToUpload, setUploadProgress) => {
         const casesCollection = collection(db, `artifacts/${appId}/users/${userId}/cases`);
